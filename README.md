@@ -31,7 +31,7 @@ pip install -e '.[dev]'
 ## Package layout
 
 - `seqtrainer/clients`: SynBioHub and remote clients (auth/retry/pagination-ready client)
-- `seqtrainer/sparql`: prefixes, builders, and query recipes
+- `seqtrainer/sparql`: prefixes, builders, canonical query recipes, and typed result normalization
 - `seqtrainer/data`: SBOL loaders, recipes, materialized datasets
 - `seqtrainer/transforms`: DNA transforms and feature extraction
 - `seqtrainer/models`: framework-neutral backbone/head registry stubs

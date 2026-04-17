@@ -11,11 +11,14 @@ The client keeps a small, explicit API surface while adding:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
+if TYPE_CHECKING:
+    from seqtrainer.sparql.recipes import SparqlRecipe
 
 
 class SynBioHubClientError(RuntimeError):
@@ -185,6 +188,25 @@ class SynBioHubClient:
             page += 1
 
         return merged or {"head": {"vars": []}, "results": {"bindings": []}}
+
+    def run_recipe(
+        self,
+        recipe: "SparqlRecipe",
+        *,
+        paginate: bool = False,
+        page_size: int = 500,
+        max_pages: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Execute a :class:`seqtrainer.sparql.recipes.SparqlRecipe` and normalize results."""
+        payload = self.run_sparql(
+            recipe.query,
+            paginate=paginate,
+            page_size=page_size,
+            max_pages=max_pages,
+        )
+        if not isinstance(payload, dict):
+            raise SynBioHubResponseError("Recipe execution expected dict SPARQL payload")
+        return recipe.normalize(payload)
 
     def fetch_sbol(
         self,

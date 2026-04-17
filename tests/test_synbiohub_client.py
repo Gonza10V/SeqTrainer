@@ -11,6 +11,7 @@ from seqtrainer.clients.synbiohub import (
     SynBioHubHTTPError,
     SynBioHubResponseError,
 )
+from seqtrainer.sparql.recipes import numerical_measurements_recipe
 
 
 class DummyResponse:
@@ -104,3 +105,22 @@ def test_token_header_is_applied():
     client.run_sparql("SELECT * WHERE {?s ?p ?o}")
     headers = mock_session.request.call_args.kwargs["headers"]
     assert headers["X-authorization"] == "token-123"
+
+
+def test_run_recipe_returns_normalized_rows():
+    payload = {
+        "results": {
+            "bindings": [
+                {
+                    "subject": {"type": "uri", "value": "https://example.org/x"},
+                    "value": {"type": "literal", "value": "2.5", "datatype": "http://www.w3.org/2001/XMLSchema#double"},
+                }
+            ]
+        }
+    }
+    response = DummyResponse(json_payload=payload)
+    client, _ = make_client_with_mocked_request(response)
+
+    rows = client.run_recipe(numerical_measurements_recipe())
+
+    assert rows == [{"subject": "https://example.org/x", "value": 2.5}]

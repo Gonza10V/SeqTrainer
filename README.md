@@ -34,9 +34,9 @@ pip install -e '.[dev]'
 - `seqtrainer/sparql`: prefixes, builders, canonical query recipes, and typed result normalization
 - `seqtrainer/data`: SBOL loaders, recipes, materialized datasets, local snapshots/cache manifests
 - `seqtrainer/transforms`: DNA transforms and feature extraction
-- `seqtrainer/models`: framework-neutral backbone/head registry stubs
+- `seqtrainer/models`: framework-neutral backbone/head registries and default model specs
 - `seqtrainer/keras`: Keras adapters/factories (optional dependency)
-- `seqtrainer/torch`: PyTorch adapters/fine-tune helpers (optional dependency)
+- `seqtrainer/torch`: PyTorch adapters, HF/DNABERT backbone wrappers, and standard regression/classification heads (optional dependency)
 - `seqtrainer/graph`: RDF/SBOL graph conversion utilities
 - `seqtrainer/applications`: task-oriented blueprints
 - `seqtrainer/cli`: command-line entrypoints

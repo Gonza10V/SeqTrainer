@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -28,3 +30,29 @@ class DatasetRecipe:
         if self.label_field is None:
             return None
         return row.get(self.label_field)
+
+    def as_manifest_payload(self) -> dict[str, Any]:
+        """Return stable, serializable recipe metadata for snapshot manifests."""
+        return {
+            "name": self.name,
+            "query": self.query,
+            "sequence_field": self.sequence_field,
+            "label_field": self.label_field,
+            "metadata_fields": list(self.metadata_fields),
+            "provenance": self.provenance,
+            "recipe_hash": self.recipe_hash,
+        }
+
+    @property
+    def recipe_hash(self) -> str:
+        """Stable hash identifier for this recipe's serializable shape."""
+        payload = {
+            "name": self.name,
+            "query": self.query,
+            "sequence_field": self.sequence_field,
+            "label_field": self.label_field,
+            "metadata_fields": list(self.metadata_fields),
+            "provenance": self.provenance,
+        }
+        serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()

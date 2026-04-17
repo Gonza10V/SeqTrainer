@@ -32,7 +32,7 @@ pip install -e '.[dev]'
 
 - `seqtrainer/clients`: SynBioHub and remote clients (auth/retry/pagination-ready client)
 - `seqtrainer/sparql`: prefixes, builders, canonical query recipes, and typed result normalization
-- `seqtrainer/data`: SBOL loaders, recipes, materialized datasets
+- `seqtrainer/data`: SBOL loaders, recipes, materialized datasets, local snapshots/cache manifests
 - `seqtrainer/transforms`: DNA transforms and feature extraction
 - `seqtrainer/models`: framework-neutral backbone/head registry stubs
 - `seqtrainer/keras`: Keras adapters/factories (optional dependency)

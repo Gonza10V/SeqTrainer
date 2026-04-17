@@ -13,3 +13,9 @@ def test_materialized_dataset_split_sizes():
     assert len(train.examples) == 6
     assert len(val.examples) == 2
     assert len(test.examples) == 2
+
+
+def test_dataset_recipe_has_stable_hash():
+    recipe = DatasetRecipe(name="demo", query="SELECT *", label_field="target")
+    assert len(recipe.recipe_hash) == 64
+    assert recipe.as_manifest_payload()["recipe_hash"] == recipe.recipe_hash

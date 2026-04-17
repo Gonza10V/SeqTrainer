@@ -41,3 +41,39 @@ class MaterializedDataset:
             MaterializedDataset(items[train_end:val_end], metadata={**self.metadata, "split": "val"}),
             MaterializedDataset(items[val_end:], metadata={**self.metadata, "split": "test"}),
         )
+
+    def save_snapshot(
+        self,
+        *,
+        dataset_name: str,
+        dataset_version: str | None = None,
+        recipe: dict[str, Any] | None = None,
+        cache_dir: str | None = None,
+    ):
+        """Persist this dataset to the local snapshot cache and return its manifest."""
+        from .cache import write_snapshot
+
+        return write_snapshot(
+            self,
+            dataset_name=dataset_name,
+            dataset_version=dataset_version,
+            recipe=recipe,
+            cache_dir=cache_dir,
+        )
+
+    @classmethod
+    def load_snapshot(
+        cls,
+        *,
+        dataset_name: str,
+        dataset_version: str,
+        cache_dir: str | None = None,
+    ) -> tuple["MaterializedDataset", Any]:
+        """Load dataset + manifest from local snapshot cache."""
+        from .cache import load_snapshot
+
+        return load_snapshot(
+            dataset_name=dataset_name,
+            dataset_version=dataset_version,
+            cache_dir=cache_dir,
+        )

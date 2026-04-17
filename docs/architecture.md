@@ -35,3 +35,8 @@
 ## Experimental code policy
 
 Prototype scripts and notebooks remain available, but stable APIs should be surfaced through modules under `seqtrainer/*`.
+
+
+## Data snapshots and cache
+
+`seqtrainer.data.cache` provides local snapshot persistence (`examples.jsonl` + versioned `manifest.json`) for reproducible dataset materialization workflows.

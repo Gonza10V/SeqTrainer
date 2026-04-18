@@ -17,7 +17,7 @@ def normalize_sequence(sequence: str) -> str:
 
 def pad_or_trim(sequence: str, length: int, pad_char: str = "N") -> str:
     """Center trim or center pad sequence to a fixed length."""
-    seq = normalize_sequence(sequence)
+    seq = normalize_sequence(sequence).strip("N")
     if len(seq) > length:
         diff = len(seq) - length
         left = diff // 2
@@ -45,7 +45,7 @@ def one_hot_encode(sequences: list[str], alphabet: tuple[str, ...] = ALPHABET) -
 
 def gc_content(sequence: str) -> float:
     """Calculate GC fraction over canonical nucleotides only."""
-    seq = normalize_sequence(sequence)
+    seq = normalize_sequence(sequence).strip("N")
     valid = [b for b in seq if b in {"A", "C", "G", "T"}]
     if not valid:
         return 0.0
@@ -57,7 +57,7 @@ def kmer_counts(sequence: str, k: int, normalize: bool = True) -> dict[str, floa
     """Count k-mer occurrences using A/C/G/T vocabulary."""
     if k <= 0:
         raise ValueError("k must be positive")
-    seq = normalize_sequence(sequence)
+    seq = normalize_sequence(sequence).strip("N")
     kmers = ["".join(c) for c in itertools.product("ACGT", repeat=k)]
 
     counts: Counter[str] = Counter()

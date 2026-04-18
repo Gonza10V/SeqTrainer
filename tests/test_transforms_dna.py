@@ -32,3 +32,11 @@ def test_kmer_counts_does_not_cross_unknown_bases():
     assert values["AC"] == 0.0
     assert values["CG"] == 1.0
     assert sum(values.values()) == 1.0
+
+
+def test_kmer_counts_ignores_flanking_unknown_runs():
+    values = kmer_counts("NNNNACNGTNNN", k=2, normalize=False)
+    assert values["AC"] == 1.0
+    assert values["GT"] == 1.0
+    assert values["CG"] == 0.0
+    assert sum(values.values()) == 2.0

@@ -47,6 +47,9 @@ dev = [
   "pytest-cov>=5.0",
   "ruff>=0.4",
   "mypy>=1.9",
+  "build>=1.2",
+  "twine>=5.0",
+  "types-requests>=2.31",
 ]
 
 [project.scripts]
@@ -62,3 +65,43 @@ package-dir = {"" = "src"}
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["seqtrainer*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+extend-exclude = [
+  "src/seqtrainer/_autordf2gml.py",
+  "src/seqtrainer/_autordf2gml-tb.py",
+  "src/seqtrainer/config-helper.py",
+  "src/seqtrainer/pwm.py",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "B"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+files = [
+  "src/seqtrainer/clients",
+  "src/seqtrainer/sparql",
+  "src/seqtrainer/data",
+  "src/seqtrainer/transforms",
+  "src/seqtrainer/graph",
+  "src/seqtrainer/models",
+  "src/seqtrainer/torch",
+  "src/seqtrainer/keras",
+  "src/seqtrainer/cli",
+  "src/seqtrainer/applications",
+  "src/seqtrainer/_deprecation.py",
+]
+exclude = '(^src/seqtrainer/_autordf2gml(-tb)?\.py$|^src/seqtrainer/config-helper\.py$|^src/seqtrainer/pwm\.py$)'
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+disable_error_code = ["import-untyped"]

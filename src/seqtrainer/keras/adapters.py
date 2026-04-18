@@ -23,7 +23,7 @@ def to_tf_dataset(dataset: MaterializedDataset, config: KerasAdapterConfig | Non
     cfg = config or KerasAdapterConfig()
 
     try:
-        import tensorflow as tf  # type: ignore
+        import tensorflow as tf
     except Exception as exc:  # pragma: no cover
         raise ImportError("Install seqtrainer[keras] to use Keras adapters") from exc
 

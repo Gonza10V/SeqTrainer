@@ -54,3 +54,15 @@ seqtrainer model build --framework torch --task regression
 ## Status
 
 This is the first architecture-focused cleanup. Some framework integrations are intentionally placeholders with TODOs to keep a stable, minimal public surface.
+
+
+## CI checks
+
+The repository includes a GitHub Actions CI matrix for:
+
+- base test suite
+- `torch` extra
+- `keras` extra
+- `gnn` extra
+- lint (`ruff`) and type checks (`mypy`)
+- packaging build + `twine check`

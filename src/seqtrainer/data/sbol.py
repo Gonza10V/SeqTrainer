@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
 from rdflib import Graph
@@ -11,6 +12,9 @@ from rdflib.query import ResultRow
 from seqtrainer.data.materialized import MaterializedDataset
 from seqtrainer.data.recipes import DatasetRecipe, get_builtin_dataset_recipe
 from seqtrainer.sparql.recipes import sequence_query
+
+if TYPE_CHECKING:
+    from seqtrainer.data.cache import DatasetManifest
 
 DEFAULT_Y_URI = "http://www.ontology-of-units-of-measure.org/resource/om-2/hasNumericalValue"
 
@@ -77,7 +81,7 @@ def materialize_dataset_from_sbol(
     dataset_version: str | None = None,
     cache_dir: str | Path | None = None,
     write_cache: bool = False,
-) -> tuple[MaterializedDataset, object | None]:
+) -> tuple[MaterializedDataset, "DatasetManifest | None"]:
     """Materialize local SBOL files into :class:`MaterializedDataset`.
 
     Optionally writes a snapshot manifest + jsonl payload into the local cache.

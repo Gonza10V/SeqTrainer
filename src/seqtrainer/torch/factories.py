@@ -67,7 +67,7 @@ def build_sequence_model(config: TorchSequenceModelConfig):
     else:
         raise ValueError(f"Unsupported task: {config.task}")
 
-    class SequenceModel(nn.Module):
+    class SequenceModel(nn.Module):  # type: ignore[name-defined]
         def __init__(self, backbone_module, head_module):
             super().__init__()
             self.backbone = backbone_module

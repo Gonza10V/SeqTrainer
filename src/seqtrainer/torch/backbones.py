@@ -37,7 +37,7 @@ def build_hf_backbone(config: HFBackboneConfig):
     """Build a HuggingFace sequence backbone with configurable pooling."""
     torch, nn, auto_model_cls = _import_torch_hf_stack()
 
-    class HFBackbone(nn.Module):
+    class HFBackbone(nn.Module):  # type: ignore[name-defined]
         def __init__(self):
             super().__init__()
             self.model = auto_model_cls.from_pretrained(

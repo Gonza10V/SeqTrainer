@@ -33,7 +33,7 @@ def _uri_tail(uri: str) -> str:
 def build_config(spec: GraphConfigSpec) -> configparser.ConfigParser:
     """Build an in-memory config parser from graph spec."""
     cfg = configparser.ConfigParser()
-    cfg.optionxform = str
+    cfg.optionxform = str  # type: ignore[assignment]
 
     classes = {_uri_tail(uri): uri for uri in spec.node_uris}
     class_names = list(classes.keys())

@@ -1,6 +1,6 @@
 """PyTorch integration points for SeqTrainer."""
 
-from .adapters import to_torch_dataset
+from .adapters import TorchAdapterConfig, to_torch_dataloader, to_torch_dataset
 from .backbones import HFBackboneConfig, build_hf_backbone, dnabert2_backbone
 from .factories import TorchSequenceModelConfig, build_sequence_model
 from .finetune import build_finetune_config, default_loss_for_task
@@ -12,7 +12,9 @@ from .heads import (
 )
 
 __all__ = [
+    "TorchAdapterConfig",
     "to_torch_dataset",
+    "to_torch_dataloader",
     "HFBackboneConfig",
     "build_hf_backbone",
     "dnabert2_backbone",

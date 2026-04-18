@@ -10,6 +10,7 @@ from .cache import (
 )
 from .materialized import MaterializedDataset
 from .recipes import DatasetRecipe
+from .tensorization import SequenceTensorizationConfig, tensorize_materialized_dataset
 from .sbol import (
     build_dataset_from_files,
     get_sequence_from_sbol,
@@ -21,6 +22,8 @@ __all__ = [
     "DEFAULT_CACHE_DIR",
     "DatasetManifest",
     "DatasetRecipe",
+    "SequenceTensorizationConfig",
+    "tensorize_materialized_dataset",
     "MaterializedDataset",
     "compute_examples_fingerprint",
     "write_snapshot",

@@ -35,8 +35,8 @@ pip install -e '.[dev]'
 - `seqtrainer/data`: SBOL loaders, recipes, materialized datasets, local snapshots/cache manifests
 - `seqtrainer/transforms`: DNA transforms and feature extraction
 - `seqtrainer/models`: framework-neutral backbone/head registries and default model specs
-- `seqtrainer/keras`: Keras adapters/factories (optional dependency)
-- `seqtrainer/torch`: PyTorch adapters, HF/DNABERT backbone wrappers, and standard regression/classification heads (optional dependency)
+- `seqtrainer/keras`: Keras model factories + tensorized `tf.data` adapters from `MaterializedDataset` (optional dependency)
+- `seqtrainer/torch`: PyTorch tensorized adapters/dataloaders, HF/DNABERT backbones, and regression/classification heads (optional dependency)
 - `seqtrainer/graph`: RDF/SBOL graph conversion utilities
 - `seqtrainer/applications`: task-oriented blueprints
 - `seqtrainer/cli`: command-line entrypoints

@@ -22,3 +22,12 @@ Use:
 - `seqtrainer sparql prefixes`
 - `seqtrainer inspect-sbol <file>`
 - `seqtrainer build-dataset <files...>`
+
+
+## CLI migration
+
+- New structured command group: `seqtrainer dataset ...`
+  - `seqtrainer dataset recipes`
+  - `seqtrainer dataset build <files...>`
+- Legacy `seqtrainer build-dataset` remains as a compatibility alias for now.
+- New framework-specific config command: `seqtrainer model build --framework <torch|keras>`.

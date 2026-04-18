@@ -46,7 +46,9 @@ pip install -e '.[dev]'
 ```bash
 seqtrainer sparql prefixes
 seqtrainer inspect-sbol data/sbol_data/sample_design_0.xml
-seqtrainer build-dataset data/sbol_data/sample_design_0.xml
+seqtrainer dataset recipes
+seqtrainer dataset build data/sbol_data/sample_design_0.xml --cache
+seqtrainer model build --framework torch --task regression
 ```
 
 ## Status

@@ -25,3 +25,10 @@ def test_gc_content():
 def test_kmer_counts_normalized_sum():
     values = kmer_counts("ACGT", k=2, normalize=True)
     assert np.isclose(sum(values.values()), 1.0)
+
+
+def test_kmer_counts_does_not_cross_unknown_bases():
+    values = kmer_counts("ANCG", k=2, normalize=False)
+    assert values["AC"] == 0.0
+    assert values["CG"] == 1.0
+    assert sum(values.values()) == 1.0

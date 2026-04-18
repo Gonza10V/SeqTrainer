@@ -57,10 +57,19 @@ def kmer_counts(sequence: str, k: int, normalize: bool = True) -> dict[str, floa
     """Count k-mer occurrences using A/C/G/T vocabulary."""
     if k <= 0:
         raise ValueError("k must be positive")
-    seq = normalize_sequence(sequence).replace("N", "")
+    seq = normalize_sequence(sequence)
     kmers = ["".join(c) for c in itertools.product("ACGT", repeat=k)]
-    counts = Counter(seq[i : i + k] for i in range(len(seq) - k + 1))
+
+    counts: Counter[str] = Counter()
+    total_windows = 0
+    for segment in seq.split("N"):
+        if len(segment) < k:
+            continue
+        segment_windows = len(segment) - k + 1
+        total_windows += segment_windows
+        counts.update(segment[i : i + k] for i in range(segment_windows))
+
     if normalize:
-        total = max(len(seq) - k + 1, 1)
+        total = max(total_windows, 1)
         return {kmer: counts.get(kmer, 0) / total for kmer in kmers}
     return {kmer: float(counts.get(kmer, 0)) for kmer in kmers}

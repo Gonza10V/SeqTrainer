@@ -1,33 +1,44 @@
 # Migration guide
 
-## Module moves
+This guide documents current migration paths from legacy/prototype APIs to the stabilized package structure.
 
-- `seqtrainer.preprocessing` -> `seqtrainer.transforms.dna`
-- `seqtrainer.dataset_builder` -> `seqtrainer.data.sbol`
-- `seqtrainer.gnn` prototype -> `seqtrainer.graph` + `seqtrainer.torch`
+## Deprecation timeline
 
-Compatibility wrappers are retained for `preprocessing` and `dataset_builder`.
+SeqTrainer now emits standardized `DeprecationWarning`s for legacy compatibility paths.
 
-## New APIs
+- **Current status (April 18, 2026):** soft deprecation (warnings + compatibility still available)
+- **Planned earliest removal date:** **December 31, 2026**
+- **Target release for removals:** **0.4.0**
+
+> Compatibility paths are retained to support migration, but new development should use the replacement APIs below.
+
+## Old → New module mappings
+
+| Legacy module / command | Replacement | Notes |
+|---|---|---|
+| `seqtrainer.preprocessing` | `seqtrainer.transforms.dna` | Legacy wrapper remains; emits deprecation warnings. |
+| `seqtrainer.dataset_builder` | `seqtrainer.data.sbol` | Legacy wrapper remains; emits deprecation warnings. |
+| `seqtrainer.gnn` | `seqtrainer.graph` + `seqtrainer.torch` | Prototype module deprecated; use graph extraction/config + torch model modules. |
+| `seqtrainer build-dataset ...` | `seqtrainer dataset build ...` | Legacy CLI alias remains; emits deprecation warning. |
+
+## New APIs to target
 
 - `seqtrainer.clients.SynBioHubClient`
-- `seqtrainer.data.DatasetRecipe`
-- `seqtrainer.data.MaterializedDataset`
-- `seqtrainer.applications.build_promoter_regression_blueprint`
-
-## CLI
-
-Use:
-
-- `seqtrainer sparql prefixes`
-- `seqtrainer inspect-sbol <file>`
-- `seqtrainer build-dataset <files...>`
-
+- `seqtrainer.sparql.*` (recipes/builders/typed normalization)
+- `seqtrainer.data.*` (`DatasetRecipe`, `MaterializedDataset`, cache, tensorization)
+- `seqtrainer.graph.*` (schema extraction + config builders)
+- `seqtrainer.torch.*` / `seqtrainer.keras.*` adapters and model helpers
 
 ## CLI migration
 
-- New structured command group: `seqtrainer dataset ...`
-  - `seqtrainer dataset recipes`
-  - `seqtrainer dataset build <files...>`
-- Legacy `seqtrainer build-dataset` remains as a compatibility alias for now.
-- New framework-specific config command: `seqtrainer model build --framework <torch|keras>`.
+Prefer the structured commands:
+
+- `seqtrainer dataset recipes`
+- `seqtrainer dataset build <files...> [--recipe ... --cache ... --output ...]`
+- `seqtrainer model build --framework <torch|keras> ...`
+- `seqtrainer sparql prefixes`
+- `seqtrainer inspect-sbol <file>`
+
+## Notes for maintainers
+
+If extending compatibility shims, route all warning behavior through `seqtrainer._deprecation.warn_deprecated` so timelines and wording stay consistent.

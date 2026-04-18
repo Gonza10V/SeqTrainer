@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
+from seqtrainer._deprecation import warn_deprecated
 from seqtrainer.applications.promoter_regression import build_promoter_regression_blueprint
 from seqtrainer.data import list_builtin_dataset_recipes, materialize_dataset_from_sbol
 from seqtrainer.data.sbol import get_sequence_from_sbol
@@ -107,6 +108,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if (args.command == "dataset" and args.dataset_command == "build") or args.command == "build-dataset":
+        if args.command == "build-dataset":
+            warn_deprecated(old="seqtrainer build-dataset", new="seqtrainer dataset build", kind="command", stacklevel=2)
+
         dataset, manifest = materialize_dataset_from_sbol(
             args.files,
             y_uri=args.y_uri,

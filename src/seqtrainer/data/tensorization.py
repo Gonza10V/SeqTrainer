@@ -40,14 +40,20 @@ def _normalize_and_pad(sequences: list[str], *, max_length: int | None, pad_char
 
 
 def _tokenize_nucleotides(sequences: list[str], *, vocab: dict[str, int], max_length: int | None, pad_char: str) -> tuple[np.ndarray, np.ndarray]:
-    processed = _normalize_and_pad(sequences, max_length=max_length, pad_char=pad_char)
+    normalized = [normalize_sequence(seq) for seq in sequences]
+    length = _resolve_length(normalized, max_length)
+    processed = [pad_or_trim(seq, length, pad_char=pad_char) for seq in normalized]
+
     pad_id = 0
-    token_ids = np.full((len(processed), len(processed[0]) if processed else 0), pad_id, dtype=np.int32)
+    token_ids = np.full((len(processed), length), pad_id, dtype=np.int32)
     attention_mask = np.zeros_like(token_ids, dtype=np.int32)
+
     for i, seq in enumerate(processed):
+        content_length = min(len(normalized[i]), length)
         for j, token in enumerate(seq):
             token_ids[i, j] = vocab.get(token, vocab.get("N", 0))
-            attention_mask[i, j] = 0 if token == pad_char else 1
+            attention_mask[i, j] = 1 if j < content_length else 0
+
     return token_ids, attention_mask
 
 

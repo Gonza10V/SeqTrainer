@@ -37,6 +37,16 @@ def test_tensorization_token_ids_contains_attention_mask():
     assert labels is not None and np.allclose(labels, [1.0, 0.0])
 
 
+def test_tensorization_token_ids_does_not_mask_real_n_tokens():
+    dataset = MaterializedDataset(examples=[{"sequence": "AN", "target": 1.0}])
+    features, _ = tensorize_materialized_dataset(
+        dataset,
+        SequenceTensorizationConfig(encoding="token_ids", max_length=4),
+    )
+
+    assert features["attention_mask"].tolist() == [[1, 1, 0, 0]]
+
+
 def test_torch_adapter_raises_without_torch(monkeypatch):
     monkeypatch.setitem(sys.modules, "torch", None)
     with pytest.raises(ImportError, match="seqtrainer\\[torch\\]"):

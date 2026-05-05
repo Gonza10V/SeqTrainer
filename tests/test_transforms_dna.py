@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from seqtrainer.transforms.dna import gc_content, kmer_counts, normalize_sequence, one_hot_encode, pad_or_trim
 
@@ -21,7 +22,15 @@ def test_one_hot_encode_shape():
 def test_gc_content():
     assert gc_content("AGGC") == 0.75
 
+def test_gc_content_empty_sequence():
+    assert gc_content("") == 0.0
+
+
+def test_gc_content_ignores_unknown_bases():
+    assert gc_content("GGNN") == 1.0
+
 
 def test_kmer_counts_normalized_sum():
     values = kmer_counts("ACGT", k=2, normalize=True)
     assert np.isclose(sum(values.values()), 1.0)
+

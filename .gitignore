@@ -1,6 +1,8 @@
 .env
 trainvenv/
 testervenv/
+__pycache__/
+*.py[cod]
 src/seqtrainer.egg-info/
 src/saved-data
 dist

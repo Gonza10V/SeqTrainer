@@ -1,0 +1,10 @@
+{
+  "genomes": [
+    {
+      "name": "ecoli_mg1655",
+      "accession": "NC_000913.3",
+      "fasta_path": "data/raw/ecoli_mg1655/NC_000913.3.fna",
+      "group": "MG1655_only"
+    }
+  ]
+}

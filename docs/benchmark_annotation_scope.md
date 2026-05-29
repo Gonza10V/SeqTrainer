@@ -1,105 +1,130 @@
 # Benchmark and Annotation Scope
 
-This document defines the scientific scope for reproducible promoter prediction
-benchmarks and plasmid promoter annotation in SeqTrainer. It is written for
-researchers who want to understand what is being evaluated, how results should
-be compared, and what artifacts should be produced for reuse.
+This document defines the scientific scope for reproducible bacterial promoter
+prediction benchmarks and plasmid promoter annotation in SeqTrainer. It is meant
+for researchers who want to understand what is being evaluated, what evidence is
+needed to compare models, and what outputs should be reproducible.
 
-## Current Capabilities
+## Summary
 
-SeqTrainer is currently a synthetic biology ML toolkit centered on SBOL and
-SynBioHub data workflows. The package already has:
+SeqTrainer will benchmark promoter prediction models on shared DNA sequence
+examples, using shared splits, shared metrics, and recorded provenance. The
+starting reference is the existing CNN tutorial baseline. Candidate models such
+as DNABERT2 and iPro-MP should be adopted for annotation only when they improve
+relevant benchmark metrics or provide a clearly justified scientific or
+operational tradeoff.
 
-- SBOL helpers in `seqtrainer.data.sbol` that extract a sequence, numeric target,
-  and source path from SBOL XML files.
-- DNA transforms in `seqtrainer.transforms.dna` for normalization, fixed-length
-  padding/trimming, one-hot encoding, GC content, and k-mer features.
-- `MaterializedDataset` in `seqtrainer.data.materialized` for seeded
-  train/validation/test splits.
+The first annotation target is plasmid promoter prediction. The expected output
+is a structured table of predicted promoter calls and an SBOL annotation draft
+that preserves enough provenance for another researcher to inspect and rerun the
+workflow.
+
+## Existing SeqTrainer Capabilities
+
+SeqTrainer already provides several building blocks for this work:
+
+- SBOL-to-table extraction in `seqtrainer.data.sbol`.
+- DNA preprocessing in `seqtrainer.transforms.dna`, including sequence
+  normalization, padding/trimming, one-hot encoding, GC content, and k-mer
+  features.
+- Seeded train/validation/test splitting through
+  `seqtrainer.data.materialized.MaterializedDataset`.
 - A framework-neutral model registry stub in `seqtrainer.models.registry`.
-- Optional framework adapter namespaces for PyTorch and Keras.
-- A CLI foundation with `inspect-sbol`, `build-dataset`, and SPARQL prefix
-  helpers.
-- Tutorial notebooks in `notebooks/tutorials/`, including:
-  - `01_sbol_to_dataset.ipynb` for SBOL-to-table extraction.
-  - `02_dna_features.ipynb` for DNA feature transforms.
-  - `03_dataset_splits.ipynb` for reproducible splits.
-  - `04_end_to_end_cnn_classification.ipynb` for a mini CNN classifier.
-  - `05_end_to_end_cnn_regression.ipynb` for a mini CNN regressor.
+- Optional PyTorch and Keras adapter namespaces.
+- A command-line foundation with `inspect-sbol`, `build-dataset`, and SPARQL
+  helper commands.
+- Tutorial notebooks in `notebooks/tutorials/` for SBOL extraction, DNA
+  features, dataset splits, CNN classification, and CNN regression.
 
-The current CNN classification tutorial is a small demonstration baseline. It
-uses the first 40 `data/sbol_data/sample_design_*.xml` files, derives a binary
-label by thresholding the numeric `target` at the median, pads/trims sequences
-to a fixed length, one-hot encodes them, splits with seed `42`, and trains a
-small PyTorch Conv1D model for 10 cycles with unweighted cross-entropy loss.
+The current CNN classification tutorial is a demonstration baseline. It uses 40
+sample SBOL XML files from `data/sbol_data/`, derives binary labels by
+thresholding the numeric `target` at the median, pads/trims sequences to a fixed
+length, one-hot encodes the sequences, splits with seed `42`, and trains a small
+PyTorch Conv1D model for 10 cycles with unweighted cross-entropy loss.
 
-## Scientific Task
+## Scientific Question
 
-The P0 benchmark task is binary bacterial DNA promoter prediction from sequence
-windows or sequence records. Each example should contain:
+The benchmark asks:
 
-- a DNA sequence or generated sequence window,
+> Given bacterial DNA sequence records or candidate sequence windows, how well
+> can a model predict promoter-positive versus promoter-negative examples in a
+> reproducible way?
+
+Each benchmark example should contain:
+
+- a DNA sequence or sequence window,
 - a binary promoter label,
-- source/provenance metadata,
+- source and provenance metadata,
 - split assignment,
-- enough identifiers to connect predictions back to the original sequence or
+- stable identifiers that connect predictions back to the original sequence or
   SBOL source.
 
-The benchmark should compare model families on the same examples, using the
-same split definitions and metric code. The annotation workflow should then
-apply the selected model path to plasmid candidate windows and export predicted
-promoter calls.
+All model families must be evaluated on the same examples and split definitions.
+The model selected for annotation should then be applied to plasmid candidate
+windows to generate predicted promoter calls.
 
-## Label and Source Assumptions
+## Data and Labels
 
-P0 labels may come from two sources:
+Labels may come from either:
 
-1. Curated binary promoter/non-promoter annotations when available.
-2. A documented threshold over a numeric `target` value when using the current
+1. curated binary promoter/non-promoter annotations, when available; or
+2. a documented threshold over a numeric `target` value, when using the current
    tutorial-style SBOL data.
 
-When numeric targets are thresholded, the threshold must be recorded with the
+When numeric targets are thresholded, the threshold must be saved with the
 results. The tutorial median threshold is acceptable for reproducing the
-demonstration CNN baseline, but benchmark runs intended to support scientific
-claims should state why the threshold is appropriate for the dataset being
-evaluated.
+demonstration CNN baseline. However, benchmark results intended to support
+scientific claims should explain why the chosen threshold is appropriate for the
+dataset.
 
-Every dataset row should preserve at least:
+Every dataset row should preserve:
 
 - source file or source record identifier,
 - sequence identifier when available,
 - numeric target when used,
 - binary label,
 - threshold or label rule,
-- parsing/validation warnings where applicable.
+- parsing or validation warnings where applicable.
 
 ## Initial Benchmark Scope
 
 The initial benchmark should include:
 
-- Reproducible CNN baseline reproduction from the existing tutorial behavior.
-- A shared benchmark interface for CNN, DNABERT2, and iPro-MP evaluation.
-- Shared seeded train/validation/test splits.
-- Shared metric computation and JSON/CSV output.
-- Run manifests with environment, seed, split, model version, threshold, and
-  hyperparameters.
-- Imbalance handling policy that records class distributions and avoids
-  test-set leakage.
-- DNABERT2 frozen-embedding baseline, with optional classifier-head fine-tuning
-  if the package path is stable.
-- iPro-MP setup, wrapper or adapter path, smoke test, and conversion between
-  SeqTrainer splits and iPro-MP-compatible FASTA/prediction tables.
-- Unified comparison of CNN, DNABERT2, and iPro-MP on the same held-out split.
-- A model decision record selecting the first annotation model path.
-- Plasmid annotation workflow:
-  - generate sliding windows or candidate regions,
-  - score windows with the selected model,
-  - merge overlapping positive windows,
-  - export promoter calls as a structured table,
-  - export an SBOL annotation draft,
-  - evaluate against a curated held-out plasmid set when available.
-- Reproducibility notebooks and a report explaining how to reproduce and extend
-  the work.
+- reproduction of the existing CNN classification baseline,
+- a shared benchmark interface for CNN, DNABERT2, and iPro-MP,
+- shared seeded train/validation/test splits,
+- shared metric computation,
+- JSON/CSV metrics output,
+- prediction tables,
+- run manifests with environment, seed, split, model version, threshold, and
+  hyperparameters,
+- class distribution reporting and an explicit imbalance-handling policy,
+- DNABERT2 frozen-embedding baseline, with classifier-head fine-tuning only if
+  the package path is stable,
+- iPro-MP setup, smoke testing, wrapper or adapter evaluation, and conversion
+  between SeqTrainer split tables and iPro-MP-compatible FASTA/prediction
+  tables,
+- unified model comparison on the same held-out test split,
+- a model decision record explaining which model path should be used for
+  plasmid annotation.
+
+## Initial Annotation Scope
+
+The initial annotation workflow should:
+
+1. generate sliding windows or candidate promoter regions from plasmid
+   sequences,
+2. score those windows with the selected model,
+3. merge overlapping positive windows into promoter feature calls,
+4. export predicted promoters to a structured table,
+5. export an SBOL annotation draft,
+6. evaluate predictions against a curated held-out plasmid set when such a set
+   is available.
+
+The first version may use simple sliding windows and basic overlap merging.
+Strand-aware post-processing, promoter-CDS association, confidence bands, and
+genome-scale annotation are follow-on improvements unless they are required for
+the curated plasmid evaluation.
 
 ## Initial Non-Goals
 
@@ -114,10 +139,7 @@ The initial benchmark and plasmid annotation workflow do not require:
   implementations,
 - treating tutorial-only median-threshold results as a final biological claim.
 
-These items can be treated as follow-on work once the benchmark and plasmid
-annotation workflow are working.
-
-## Required Benchmark Metrics
+## Required Metrics
 
 Every benchmarked model path should report:
 
@@ -131,15 +153,15 @@ Every benchmarked model path should report:
 - specificity for the negative class,
 - confusion matrix.
 
-For imbalanced datasets, AUPRC, MCC, balanced accuracy, and sensitivity/specificity
-should be treated as more informative than plain accuracy. If a split has only
-one observed class, metrics that require both classes must be reported as
-undefined or skipped with an explicit warning rather than failing silently.
+For imbalanced datasets, AUPRC, MCC, balanced accuracy, sensitivity, and
+specificity should be emphasized over plain accuracy. If a split contains only
+one observed class, metrics that require both classes should be reported as
+undefined or skipped with an explicit warning.
 
-Candidate model paths should be compared against the reproduced CNN baseline.
-DNABERT2, iPro-MP, or any improved model should only be selected for annotation
-if the benchmark shows improved relevant metrics or a clearly justified tradeoff,
-such as better reproducibility, lower operational complexity, or more useful
+Candidate models should be compared against the reproduced CNN baseline.
+DNABERT2, iPro-MP, or any improved model should be selected for annotation only
+if it improves relevant metrics or provides a clearly justified tradeoff, such
+as better reproducibility, lower operational complexity, or more useful
 annotation behavior. Accuracy alone is not sufficient evidence of improvement.
 
 ## Reproducibility Requirements
@@ -147,7 +169,7 @@ annotation behavior. Accuracy alone is not sufficient evidence of improvement.
 Each benchmark run should write:
 
 - metrics JSON,
-- metrics CSV or appendable summary table,
+- metrics CSV or an appendable summary table,
 - prediction table with example IDs and scores,
 - split metadata,
 - run manifest,
@@ -167,33 +189,34 @@ The run manifest should include:
 - hyperparameters,
 - output directory.
 
-Another researcher should be able to reproduce a reported result by installing
-SeqTrainer, obtaining the documented data/model files, and running the recorded
-configuration against the recorded split.
+A researcher should be able to reproduce a reported result by installing
+SeqTrainer, obtaining the documented data and model files, and running the
+recorded configuration against the recorded split.
 
-## Annotation Output Expectations
+## Annotation Outputs
 
-The plasmid annotation workflow should produce two primary artifacts:
+The plasmid annotation workflow should produce two primary artifacts.
 
-1. A structured promoter call table containing:
-   - plasmid or sequence ID,
-   - start and end coordinates,
-   - strand when supported,
-   - model score or probability,
-   - threshold,
-   - predicted label,
-   - supporting window IDs,
-   - run/model identifier.
+### Promoter Call Table
 
-2. An SBOL annotation draft containing predicted promoter features and provenance
-   sufficient to distinguish model predictions from existing curated features.
+The structured promoter table should include:
 
-The first version may use a simple sliding-window candidate generator and basic
-overlap merging. Strand-aware post-processing, promoter-CDS association, richer
-confidence bands, and genome-level output are follow-on work unless they become
-necessary for the curated plasmid evaluation.
+- plasmid or sequence ID,
+- start and end coordinates,
+- strand when supported,
+- model score or probability,
+- threshold,
+- predicted label,
+- supporting window IDs,
+- run or model identifier.
 
-## Researcher Reproduction Target
+### SBOL Annotation Draft
+
+The SBOL annotation draft should contain predicted promoter features and
+provenance sufficient to distinguish model predictions from existing curated
+features.
+
+## Reproduction Target
 
 Another researcher should be able to:
 
@@ -203,20 +226,20 @@ Another researcher should be able to:
 4. rerun the CNN baseline,
 5. rerun the DNABERT2 baseline path,
 6. rerun the iPro-MP baseline path or documented iPro-MP adapter path,
-7. compare the models with the same metric code,
+7. compare models with the same metric code,
 8. inspect the model decision record,
 9. run the selected model on plasmid candidate windows,
 10. regenerate promoter call tables and SBOL annotation drafts.
 
-## Document Success Criteria
+## Scope Checklist
 
-This scope is sufficient when it:
+This scope is satisfied when it:
 
-- identifies the current code and notebook baseline,
-- defines the primary prediction and annotation tasks,
-- states label/source assumptions,
-- separates P0 scope from P1/P2 follow-ons,
+- identifies the current CNN reference baseline,
+- defines the promoter prediction and plasmid annotation tasks,
+- states label and source assumptions,
+- separates initial scope from follow-on work,
 - lists required benchmark metrics,
 - defines reproducibility outputs,
-- defines plasmid annotation MVP artifacts,
+- defines annotation artifacts,
 - gives future implementation work a clear scientific target.

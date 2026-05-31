@@ -1,6 +1,6 @@
-# Benchmark and Annotation Scope
+# Bacterial Promoter Benchmark and Annotation Plan
 
-This document defines the scientific scope for reproducible bacterial promoter
+This document defines the scientific plan for reproducible bacterial promoter
 prediction benchmarks and plasmid promoter annotation in SeqTrainer. It is meant
 for researchers who want to understand what is being evaluated, what evidence is
 needed to compare models, and what outputs should be reproducible.
@@ -18,6 +18,11 @@ The first annotation target is plasmid promoter prediction. The expected output
 is a structured table of predicted promoter calls and an SBOL annotation draft
 that preserves enough provenance for another researcher to inspect and rerun the
 workflow.
+
+The near-term priority is benchmark discipline rather than model novelty. Before
+SeqTrainer uses a stronger model to make annotation claims, it should make the
+data, labels, splits, thresholds, metrics, and run conditions identical across
+model families.
 
 ## Existing SeqTrainer Capabilities
 
@@ -62,6 +67,37 @@ Each benchmark example should contain:
 All model families must be evaluated on the same examples and split definitions.
 The model selected for annotation should then be applied to plasmid candidate
 windows to generate predicted promoter calls.
+
+## Benchmark Decision Rules
+
+Every benchmark comparison should separate three decisions:
+
+1. how examples are labeled,
+2. how examples are split,
+3. how model scores are converted into predicted labels.
+
+The label rule should be defined once for a dataset version. Curated binary
+promoter/non-promoter labels are preferred when available. When binary labels are
+derived from a numeric `target`, the thresholding rule must be recorded and the
+original numeric target should be preserved for later calibration, regression, or
+error analysis.
+
+The split rule should also be defined once for a dataset version. The tutorial
+baseline may keep its original seeded split for exact reproduction. Claim-bearing
+benchmarks should use a saved split snapshot shared by CNN, DNABERT2, iPro-MP,
+and any later model. When multiple examples can come from the same source record,
+plasmid, genome region, or sequence family, the split strategy should prevent
+related records from appearing in both training and test data.
+
+The decision threshold should be selected on validation data and then frozen
+before test evaluation. A default `0.5` threshold or raw `argmax` is acceptable
+for reproducing the tutorial only, but not for model selection. For imbalanced
+classification, threshold selection should emphasize MCC, AUPRC, balanced
+accuracy, sensitivity, and specificity rather than accuracy alone.
+
+No candidate model should be selected for annotation only because it has higher
+training accuracy. Selection should be based on held-out test behavior under the
+same data, split, metric, threshold-selection, and output rules.
 
 ## Data and Labels
 
@@ -108,6 +144,69 @@ The initial benchmark should include:
 - a model decision record explaining which model path should be used for
   plasmid annotation.
 
+## Benchmark Development Roadmap
+
+The benchmark should be developed in the following order:
+
+1. **Reproduce the CNN tutorial baseline.** This establishes a reference result
+   for the current notebook behavior, including the median-derived labels,
+   existing preprocessing, seed `42`, and unweighted loss.
+2. **Create a shared experiment contract.** A single configuration schema should
+   describe datasets, labels, splits, model identifiers, thresholds,
+   hyperparameters, metrics, seeds, environment details, and output paths for all
+   model families.
+3. **Persist shared splits and metrics.** Split files, metric computation, JSON
+   and CSV output, and prediction tables should be produced by shared code so
+   CNN, DNABERT2, and iPro-MP are evaluated under identical rules.
+4. **Improve the CNN baseline after reproduction.** CNN improvements should be
+   treated as controlled ablations, such as weighted loss, early stopping,
+   validation-threshold selection, or reverse-complement augmentation. These
+   improved CNNs should be compared against the exact reproduced CNN baseline,
+   not replace it silently.
+5. **Add a frozen DNABERT2 baseline.** DNABERT2 should first be used as a frozen
+   sequence encoder with a lightweight classifier head. This is lower risk than
+   full fine-tuning and gives a strong transfer-learning comparison.
+6. **Evaluate iPro-MP through an adapter.** iPro-MP should first be isolated
+   behind a file-format adapter and smoke-tested on the shared split. It should
+   not be deeply coupled to SeqTrainer internals until it proves useful on the
+   same benchmark outputs.
+7. **Select a model for annotation.** The selected model should improve relevant
+   held-out metrics or provide a justified tradeoff such as simpler operation,
+   better reproducibility, or more useful annotation behavior.
+8. **Build the plasmid annotation MVP.** Only after model selection should the
+   annotation workflow generate candidate windows, score them, merge positive
+   windows, and export promoter call tables and SBOL drafts.
+
+This sequence keeps the project scientifically interpretable. It avoids using a
+larger model to compensate for unclear labels, leaking splits, or inconsistent
+metrics.
+
+## Future Model Strategy
+
+The model roadmap should remain evidence-based and staged.
+
+- **CNN baseline:** the current Conv1D tutorial model is the reference point.
+  The first goal is exact reproduction, followed by controlled CNN ablations.
+- **Improved CNN:** scientifically relevant improvements include class-weighted
+  or positive-weighted loss, early stopping, validation-selected thresholds,
+  reproducibility controls, and reverse-complement or small positional
+  perturbation tests when biologically justified.
+- **DNABERT2 frozen baseline:** this is the first recommended non-CNN model path.
+  DNABERT2 is designed as an efficient genomic foundation model, and a frozen
+  encoder plus classifier head is practical when labeled promoter data are
+  limited.
+- **DNABERT2 fine-tuning or LoRA:** fine-tuning should come after stable data,
+  splits, and frozen-embedding results. Parameter-efficient fine-tuning is a
+  better early option than full fine-tuning if data or GPU memory are limited.
+- **iPro-MP:** iPro-MP is directly relevant because it targets multiple
+  prokaryotic promoters and reports promoter metrics such as AUC, AUPRC, and
+  MCC. In SeqTrainer it should first be benchmarked through an adapter using the
+  same split and metric code as every other model.
+
+The working principle is: make the benchmark trustworthy first, then increase
+model complexity only when the extra complexity answers a scientific or
+operational question.
+
 ## Initial Annotation Scope
 
 The initial annotation workflow should:
@@ -133,6 +232,7 @@ The initial benchmark and plasmid annotation workflow do not require:
 - full genome-level E. coli annotation,
 - retraining iPro-MP from scratch,
 - cross-species iPro-MP transfer experiments,
+- long-context model integration,
 - production-grade model serving,
 - exhaustive hyperparameter search,
 - replacing PyTorch, Keras, Hugging Face, or iPro-MP with SeqTrainer-native model
@@ -164,6 +264,11 @@ if it improves relevant metrics or provides a clearly justified tradeoff, such
 as better reproducibility, lower operational complexity, or more useful
 annotation behavior. Accuracy alone is not sufficient evidence of improvement.
 
+When reporting model comparisons, the exact CNN tutorial baseline should remain
+visible even if an improved CNN is added. This prevents the improved CNN from
+moving the baseline target and makes it clear whether gains come from model
+architecture, loss weighting, threshold choice, split strategy, or data changes.
+
 ## Reproducibility Requirements
 
 Each benchmark run should write:
@@ -188,6 +293,17 @@ The run manifest should include:
 - class distribution per split,
 - hyperparameters,
 - output directory.
+
+The resolved configuration and manifest should make it possible to answer:
+
+- which data version and label rule were used,
+- whether the split was tutorial reproduction, random seeded, stratified, or
+  grouped,
+- how the decision threshold was chosen,
+- which metrics were used for model selection,
+- whether imbalance handling was applied,
+- which model checkpoint or external model version was used,
+- whether the run is an exact baseline reproduction or an improved ablation.
 
 A researcher should be able to reproduce a reported result by installing
 SeqTrainer, obtaining the documented data and model files, and running the
@@ -242,4 +358,16 @@ This scope is satisfied when it:
 - lists required benchmark metrics,
 - defines reproducibility outputs,
 - defines annotation artifacts,
+- defines benchmark decision rules for labels, splits, thresholds, and metrics,
 - gives future implementation work a clear scientific target.
+
+## Evidence Notes
+
+This plan is guided by the current SeqTrainer package surface and by recent
+genomic sequence-modeling and evaluation literature. DNABERT2 motivates an
+efficient frozen-embedding baseline before heavier fine-tuning. iPro-MP motivates
+an external adapter path for prokaryotic promoter prediction. MCC and AUPRC are
+emphasized because plain accuracy can be misleading for binary or imbalanced
+classification. Long-context model integration is left as future work because it
+is most relevant when SeqTrainer moves beyond short promoter windows into larger
+plasmid or genome-context modeling.

@@ -203,6 +203,29 @@ The model roadmap should remain evidence-based and staged.
   MCC. In SeqTrainer it should first be benchmarked through an adapter using the
   same split and metric code as every other model.
 
+### iPro-MP Reference Assumptions
+
+The iPro-MP paper and repository make it a useful comparison model, but also an
+external-system dependency rather than a simple in-package model. For SeqTrainer,
+the first iPro-MP milestone should therefore be a wrapper and smoke test, not
+retraining.
+
+The integration assumptions are:
+
+- Treat iPro-MP as a DNABERT-based external predictor with its own environment.
+- Use the documented FASTA input and CSV prediction output boundary.
+- Start with the E. coli species model when benchmarking the current promoter
+  dataset, because the current benchmark target is bacterial promoter prediction.
+- Preserve SeqTrainer split IDs when converting CSV splits to FASTA, so iPro-MP
+  scores can be joined back to the same metrics and prediction tables.
+- Record the iPro-MP species ID, downloaded model archive/version, local model
+  path, command, and output CSV path in the benchmark manifest.
+- Keep any iPro-MP cross-validation or retraining separate from the shared
+  held-out test split. The held-out test split should remain untouched until a
+  candidate model or threshold has been selected using training/validation data.
+- Do not commit pretrained iPro-MP model files. Document how to download them
+  and where they should live locally.
+
 The working principle is: make the benchmark trustworthy first, then increase
 model complexity only when the extra complexity answers a scientific or
 operational question.
@@ -371,3 +394,11 @@ emphasized because plain accuracy can be misleading for binary or imbalanced
 classification. Long-context model integration is left as future work because it
 is most relevant when SeqTrainer moves beyond short promoter windows into larger
 plasmid or genome-context modeling.
+
+Useful references for the next implementation issues:
+
+- iPro-MP article: Su et al., "iPro-MP: a BERT-based model to predict multiple
+  prokaryotic promoters", Genome Biology, 2025,
+  https://doi.org/10.1186/s13059-025-03819-9.
+- iPro-MP source repository: https://github.com/Jackie-Suv/iPro-MP.
+- iPro-MP model/data archive: https://doi.org/10.5281/zenodo.15180139.

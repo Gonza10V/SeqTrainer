@@ -19,6 +19,10 @@ def _build_parser() -> argparse.ArgumentParser:
     build_dataset = subparsers.add_parser("build-dataset", help="Build simple sequence/target dataset")
     build_dataset.add_argument("files", nargs="+", type=Path)
     build_dataset.add_argument("--y-uri", default="http://www.ontology-of-units-of-measure.org/resource/om-2/hasNumericalValue")
+    build_dataset.add_argument("--label-threshold", type=float)
+    build_dataset.add_argument("--include-dropped", action="store_true")
+    build_dataset.add_argument("--summary-path", type=Path)
+    build_dataset.add_argument("--warnings-path", type=Path)
 
     cnn_baseline = subparsers.add_parser("reproduce-cnn-baseline", help="Reproduce the tutorial CNN baseline")
     cnn_baseline.add_argument("--data-dir", type=Path, default=Path("data/sbol_data"))
@@ -88,7 +92,14 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "build-dataset":
-        frame = build_dataset_from_files(args.files, args.y_uri)
+        frame = build_dataset_from_files(
+            args.files,
+            args.y_uri,
+            label_threshold=args.label_threshold,
+            include_dropped=args.include_dropped,
+            summary_path=args.summary_path,
+            warnings_path=args.warnings_path,
+        )
         print(frame.to_csv(index=False))
         return 0
 

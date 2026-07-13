@@ -25,7 +25,7 @@ module load cuda || true
 BUNDLE_DIR="${BUNDLE_DIR:-$SLURM_SUBMIT_DIR}"
 WORK_ROOT="${WORK_ROOT:-/scratch/alpine/$USER/seqtrainer_dnabert2_work}"
 REPO_URL="${REPO_URL:-https://github.com/simplyshree/SeqTrainer.git}"
-BRANCH="${BRANCH:-issue-3-all-model-baselines}"
+BRANCH="${BRANCH:-alpine-updation}"
 
 REPO_DIR="$WORK_ROOT/SeqTrainer"
 ENV_DIR="$WORK_ROOT/envs/seqtrainer-dnabert2-ft"

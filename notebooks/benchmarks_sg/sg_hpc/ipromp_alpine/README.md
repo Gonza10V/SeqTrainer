@@ -46,7 +46,7 @@ From an Alpine login node:
 
 ```bash
 cd /projects/$USER
-git clone --branch issue-3-all-model-baselines \
+git clone --branch alpine-updation \
   https://github.com/simplyshree/SeqTrainer.git
 cd SeqTrainer
 

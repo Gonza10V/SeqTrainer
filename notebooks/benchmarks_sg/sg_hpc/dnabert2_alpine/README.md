@@ -148,7 +148,7 @@ The script will:
 
 1. create a working directory under `/scratch/alpine/$USER/seqtrainer_dnabert2_work`
 2. clone `https://github.com/simplyshree/SeqTrainer.git`
-3. check out branch `issue-3-all-model-baselines`
+3. check out branch `alpine-updation`
 4. copy `src_patch/dnabert2_benchmark.py` into `SeqTrainer/src/seqtrainer/torch/dnabert2_benchmark.py`
 5. copy `config/dnabert2_finetune.toml` into `SeqTrainer/config-examples/benchmarks/dnabert2_finetune.toml`
 6. locate or extract the three shared CSV split files

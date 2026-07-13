@@ -1,7 +1,8 @@
 import json
+import sys
 from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -373,7 +374,99 @@ output_dir = "outputs/ignored"
     assert result.status == "skipped"
     assert (tmp_path / "skipped" / "manifest.json").exists()
     assert result.manifest["extra"]["status"] == "skipped"
-    assert "Only CNN benchmarks" in result.manifest["extra"]["skip_reason"]
+    assert "DNABERT2 benchmark runner is not installed" in result.manifest["extra"]["skip_reason"]
+
+
+def test_benchmark_runner_dispatches_registered_dnabert2_runner(tmp_path, monkeypatch):
+    import seqtrainer.torch
+
+    config = load_benchmark_config(CONFIG_DIR / "dnabert2.toml")
+    fake_module = ModuleType("seqtrainer.torch.dnabert2_benchmark")
+    captured = {}
+
+    def fake_run(run_config, *, base_dir=None, output_dir=None):
+        captured["family"] = run_config.model.family
+        captured["base_dir"] = base_dir
+        captured["output_dir"] = output_dir
+        return SimpleNamespace(
+            output_dir=Path(output_dir),
+            status="completed",
+            metrics={"test": {"mcc": 0.1}},
+            manifest={"model": {"family": "dnabert2"}},
+        )
+
+    fake_module.run_dnabert2_csv_splits = fake_run
+    monkeypatch.setitem(sys.modules, "seqtrainer.torch.dnabert2_benchmark", fake_module)
+    monkeypatch.setattr(seqtrainer.torch, "dnabert2_benchmark", fake_module, raising=False)
+
+    result = run_benchmark(config, base_dir=tmp_path, output_dir=tmp_path / "dnabert2")
+
+    assert result.status == "completed"
+    assert captured == {
+        "family": "dnabert2",
+        "base_dir": tmp_path,
+        "output_dir": tmp_path / "dnabert2",
+    }
+
+
+def test_prepare_ipromp_cli_writes_fasta_and_mapping(tmp_path):
+    split_dir = tmp_path / "data" / "promoter_classification"
+    split_dir.mkdir(parents=True)
+    for filename in (
+        "train_EP_DNA_BERT2_genomic_order.csv",
+        "eval_EP_DNA_BERT2_genomic_order.csv",
+        "test_EP_DNA_BERT2_genomic_order.csv",
+    ):
+        pd.DataFrame({"sequence": ["ACGU", "NNNN"], "label": [0, 1]}).to_csv(split_dir / filename, index=False)
+
+    output_dir = tmp_path / "ipromp"
+    exit_code = main(
+        [
+            "benchmark",
+            "prepare-ipromp",
+            str(CONFIG_DIR / "ipromp.toml"),
+            "--base-dir",
+            str(tmp_path),
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    assert (output_dir / "ipromp_fasta" / "train.fasta").exists()
+    fasta = (output_dir / "ipromp_fasta" / "train.fasta").read_text(encoding="utf-8")
+    assert ">train_0" in fasta
+    assert "ACGT" in fasta
+    mapping = pd.read_csv(output_dir / "ipromp_id_mapping.csv")
+    assert mapping["id"].tolist()[:2] == ["train_0", "train_1"]
+
+
+def test_ipromp_external_predictions_use_shared_metrics(tmp_path):
+    split_dir = tmp_path / "data" / "promoter_classification"
+    split_dir.mkdir(parents=True)
+    for filename in (
+        "train_EP_DNA_BERT2_genomic_order.csv",
+        "eval_EP_DNA_BERT2_genomic_order.csv",
+        "test_EP_DNA_BERT2_genomic_order.csv",
+    ):
+        pd.DataFrame({"sequence": ["ACGT", "TGCA"], "label": [0, 1]}).to_csv(split_dir / filename, index=False)
+
+    config = load_benchmark_config(CONFIG_DIR / "ipromp.toml")
+    output_dir = tmp_path / "outputs" / "benchmarks" / "ipromp_ep_genomic_order"
+    external_dir = output_dir / "external_predictions"
+    external_dir.mkdir(parents=True)
+    for split in ("train", "validation", "test"):
+        pd.DataFrame({"id": [f"{split}_0", f"{split}_1"], "probability": [0.1, 0.9]}).to_csv(
+            external_dir / f"{split}_predictions.csv",
+            index=False,
+        )
+
+    result = run_benchmark(config, base_dir=tmp_path)
+
+    assert result.status == "completed"
+    assert result.metrics["test"]["mcc"] == 1.0
+    assert (output_dir / "metrics.csv").exists()
+    assert (output_dir / "predictions.csv").exists()
 
 
 def test_direct_cnn_cli_propagates_configured_cnn_v2_params(tmp_path, monkeypatch):

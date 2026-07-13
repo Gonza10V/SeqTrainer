@@ -36,6 +36,29 @@ def run_benchmark(
     family = config.model.family
     if family == "cnn":
         return _run_cnn(config, base_dir=base_dir, output_dir=output_dir)
+    if family == "dnabert2":
+        try:
+            from seqtrainer.torch.dnabert2_benchmark import run_dnabert2_csv_splits
+        except ModuleNotFoundError as exc:
+            reason = "DNABERT2 benchmark runner is not installed in this checkout."
+            if not allow_skip:
+                raise BenchmarkSkipped(reason) from exc
+            return _write_skipped_result(config, base_dir=base_dir, output_dir=output_dir, reason=reason)
+        try:
+            return run_dnabert2_csv_splits(config, base_dir=base_dir, output_dir=output_dir)
+        except BenchmarkSkipped as exc:
+            if not allow_skip:
+                raise
+            return _write_skipped_result(config, base_dir=base_dir, output_dir=output_dir, reason=str(exc))
+    if family == "ipromp":
+        from .ipromp import run_ipromp_external_predictions
+
+        try:
+            return run_ipromp_external_predictions(config, base_dir=base_dir, output_dir=output_dir)
+        except BenchmarkSkipped as exc:
+            if not allow_skip:
+                raise
+            return _write_skipped_result(config, base_dir=base_dir, output_dir=output_dir, reason=str(exc))
     reason = f"Only CNN benchmarks are implemented in this PR branch; got model family {family!r}."
     if not allow_skip:
         raise BenchmarkSkipped(reason)

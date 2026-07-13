@@ -7,13 +7,17 @@ job uses `/scratch/alpine` for temporary data and copies final artifacts back to
 
 ## Values You Must Provide
 
-Only two site-specific values are required:
+Three site-specific values are required:
 
 1. Your Alpine allocation/account name, used in `--account=<YOUR_ALPINE_ALLOCATION>`.
    Replace only the text inside angle brackets. You can find the allocation in
    the Alpine portal or ask the allocation owner/mentor.
 2. The directory containing the three shared benchmark CSV files, passed as
    `DATA_DIR=...` when submitting the job.
+3. The official iPro-MP inference script path, passed as
+   `IPROMP_OFFICIAL_INFERENCE_SCRIPT=...`. SeqTrainer prepares FASTA inputs
+   and evaluates prediction CSVs, but it does not vendor the upstream iPro-MP
+   inference implementation.
 
 Do not replace `$USER`: Alpine expands it automatically to your login name.
 Do not invent a job ID: `sbatch` prints the real ID after submission. The
@@ -107,14 +111,16 @@ mkdir -p logs
 
 sbatch \
   --account=<YOUR_ALPINE_ALLOCATION> \
-  --export=ALL,DATA_DIR=/projects/$USER/SeqTrainer/data/promoter_classification \
+  --export=ALL,DATA_DIR=/projects/$USER/SeqTrainer/data/promoter_classification,IPROMP_OFFICIAL_INFERENCE_SCRIPT=/projects/$USER/iPro-MP/predict.py \
   run_ipromp_alpine.sbatch
 ```
 
 Replace `<YOUR_ALPINE_ALLOCATION>` in that command with the allocation name.
 For example, if the allocation is `ucb-general`, use
 `--account=ucb-general`. Do not add the angle brackets to the real command.
-The `--account` value is the allocation name, not your Alpine username.
+The `--account` value is the allocation name, not your Alpine username. Replace
+`/projects/$USER/iPro-MP/predict.py` with the real path to the official iPro-MP
+prediction script in your Alpine workspace.
 
 On success, Alpine prints something similar to:
 
@@ -130,7 +136,7 @@ hours. Override `BATCH_SIZE` at submission if memory is tight:
 ```bash
 sbatch \
   --account=<YOUR_ALPINE_ALLOCATION> \
-  --export=ALL,DATA_DIR=/projects/$USER/SeqTrainer/data/promoter_classification,BATCH_SIZE=8 \
+  --export=ALL,DATA_DIR=/projects/$USER/SeqTrainer/data/promoter_classification,IPROMP_OFFICIAL_INFERENCE_SCRIPT=/projects/$USER/iPro-MP/predict.py,BATCH_SIZE=8 \
   run_ipromp_alpine.sbatch
 ```
 

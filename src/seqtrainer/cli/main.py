@@ -71,6 +71,13 @@ def _build_parser() -> argparse.ArgumentParser:
     benchmark_manifest_nested.add_argument("config", type=Path)
     benchmark_manifest_nested.add_argument("--output-dir", type=Path)
     benchmark_manifest_nested.add_argument("--base-dir", type=Path, default=Path.cwd())
+    benchmark_prepare_ipromp = benchmark_sub.add_parser(
+        "prepare-ipromp",
+        help="Write FASTA and ID mapping artifacts for external iPro-MP inference",
+    )
+    benchmark_prepare_ipromp.add_argument("config", type=Path)
+    benchmark_prepare_ipromp.add_argument("--output-dir", type=Path)
+    benchmark_prepare_ipromp.add_argument("--base-dir", type=Path, default=Path.cwd())
     benchmark_compare = benchmark_sub.add_parser("compare", help="Compare completed benchmark artifact folders")
     benchmark_compare.add_argument("artifact_dirs", nargs="+", type=Path)
     benchmark_compare.add_argument("--output-dir", type=Path, required=True)
@@ -201,6 +208,14 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.benchmark_command == "manifest":
             return _write_benchmark_manifest(args.config, args.output_dir, args.base_dir)
+
+        if args.benchmark_command == "prepare-ipromp":
+            from seqtrainer.benchmarks.ipromp import prepare_ipromp_inputs
+
+            written = prepare_ipromp_inputs(args.config, base_dir=args.base_dir, output_dir=args.output_dir)
+            for name, path in written.items():
+                print(f"{name}={path}")
+            return 0
 
         if args.benchmark_command == "compare":
             from seqtrainer.benchmarks import compare_benchmark_outputs

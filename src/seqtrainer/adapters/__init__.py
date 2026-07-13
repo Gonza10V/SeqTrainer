@@ -1,0 +1,2 @@
+"""External model adapter entrypoints."""
+

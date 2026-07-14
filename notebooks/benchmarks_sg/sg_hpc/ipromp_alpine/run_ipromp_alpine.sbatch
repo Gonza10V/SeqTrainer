@@ -1,76 +1,88 @@
-#!/usr/bin/env bash
+#!/bin/bash
 #SBATCH --job-name=seqtrainer-ipromp
 #SBATCH --partition=aa100
-#SBATCH --qos=normal
-#SBATCH --gres=gpu:1
-#SBATCH --nodes=1
-#SBATCH --ntasks=1
+#SBATCH --qos=gpu-normal
+#SBATCH --gres=gpu:a100-40gb:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=12:00:00
-#SBATCH --output=logs/ipromp-%j.out
-#SBATCH --error=logs/ipromp-%j.err
+#SBATCH --output=seqtrainer-ipromp-%j.out
+#SBATCH --error=seqtrainer-ipromp-%j.err
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SEQTRAINER_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
-CONFIG_PATH="${SCRIPT_DIR}/config/ipromp_external.toml"
-PROJECT_ROOT="${PROJECT_ROOT:-/projects/${USER}/seqtrainer_ipromp}"
-ENV_DIR="${ENV_DIR:-${PROJECT_ROOT}/env}"
-MODEL_ROOT="${MODEL_ROOT:-${PROJECT_ROOT}/models}"
-DNABERT_DIR="${DNABERT_DIR:-${MODEL_ROOT}/DNABERT-6}"
-IPROMP_MODEL_DIR="${IPROMP_MODEL_DIR:-${MODEL_ROOT}/ipromp_ecoli}"
-DATA_DIR="${DATA_DIR:?Set DATA_DIR to the folder containing the three shared benchmark CSV files}"
-WORK_ROOT="${WORK_ROOT:-/scratch/alpine/${USER}/seqtrainer_ipromp/${SLURM_JOB_ID}}"
-FINAL_OUTPUT_DIR="${FINAL_OUTPUT_DIR:-/projects/${USER}/seqtrainer_ipromp/results/${SLURM_JOB_ID}}"
-RUN_NAME="ipromp_external_ep_genomic_order"
-RUN_DIR="${WORK_ROOT}/outputs/benchmarks/${RUN_NAME}"
+if [[ -z "${BUNDLE_ROOT:-}" ]]; then
+  echo "Set BUNDLE_ROOT to the staged offline bundle, for example /projects/$USER/seqtrainer-offline" >&2
+  exit 2
+fi
 
-module purge
-module load anaconda
-eval "$(conda shell.bash hook)"
-conda activate "${ENV_DIR}"
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+export HF_DATASETS_OFFLINE=1
+export HF_HUB_DISABLE_TELEMETRY=1
+export TOKENIZERS_PARALLELISM=false
+export PIP_NO_INDEX=1
+unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy
 
-mkdir -p "${WORK_ROOT}/data/promoter_classification" "${FINAL_OUTPUT_DIR}"
-for filename in \
-  train_EP_DNA_BERT2_genomic_order.csv \
-  eval_EP_DNA_BERT2_genomic_order.csv \
-  test_EP_DNA_BERT2_genomic_order.csv; do
-  test -f "${DATA_DIR}/${filename}" || { echo "Missing ${DATA_DIR}/${filename}" >&2; exit 2; }
-  cp "${DATA_DIR}/${filename}" "${WORK_ROOT}/data/promoter_classification/${filename}"
-done
+IMAGE="${BUNDLE_ROOT}/image/seqtrainer-alpine-gpu.sif"
+REPO_DIR="${BUNDLE_ROOT}/repository/SeqTrainer"
+SCRATCH_ROOT="${SCRATCH:-/scratch/alpine/${USER}}/seqtrainer-ipromp-${SLURM_JOB_ID}"
+FINAL_OUTPUT_DIR="${FINAL_OUTPUT_DIR:-/projects/${USER}/seqtrainer-results/ipromp/${SLURM_JOB_ID}}"
+CONFIG_PATH="/repo/config-examples/benchmarks/ipromp_external_alpine_offline.toml"
+RUN_OUTPUT_DIR="/work/outputs/benchmarks/ipromp_external_alpine_offline"
 
-for fold in 1 2 3 4 5; do
-  test -f "${IPROMP_MODEL_DIR}/10_fold_${fold}.pth" || { echo "Missing E. coli fold ${fold}" >&2; exit 2; }
-done
-test -f "${DNABERT_DIR}/pytorch_model.bin" || { echo "Missing DNABERT-6 model" >&2; exit 2; }
+mkdir -p "${SCRATCH_ROOT}/external_predictions" "${FINAL_OUTPUT_DIR}"
 
-echo "Job: ${SLURM_JOB_ID}"
-echo "Node: $(hostname)"
-nvidia-smi
-python -c "import torch, transformers; print('torch', torch.__version__, 'transformers', transformers.__version__, 'cuda', torch.cuda.is_available())"
+echo "SeqTrainer iPro-MP offline Alpine run"
+echo "BUNDLE_ROOT=${BUNDLE_ROOT}"
+echo "SCRATCH_ROOT=${SCRATCH_ROOT}"
+echo "FINAL_OUTPUT_DIR=${FINAL_OUTPUT_DIR}"
+echo "SLURM_JOB_ID=${SLURM_JOB_ID:-unknown}"
 
-cd "${WORK_ROOT}"
-seqtrainer benchmark prepare-ipromp "${CONFIG_PATH}" --base-dir "${WORK_ROOT}"
+COMMON_BINDS=(
+  --bind "${REPO_DIR}:/repo:ro"
+  --bind "${BUNDLE_ROOT}/models:/models:ro"
+  --bind "${BUNDLE_ROOT}/data:/data:ro"
+  --bind "${SCRATCH_ROOT}:/work"
+)
+
+apptainer exec --nv --cleanenv \
+  --bind "${BUNDLE_ROOT}:/bundle:ro" \
+  "${COMMON_BINDS[@]}" \
+  "${IMAGE}" \
+  python /repo/tools/offline_prep/validate_offline_bundle.py --bundle-root /bundle --model ipromp
+
+apptainer exec --nv --cleanenv \
+  "${COMMON_BINDS[@]}" \
+  "${IMAGE}" \
+  seqtrainer benchmark prepare-ipromp "${CONFIG_PATH}" \
+    --base-dir / \
+    --output-dir "${RUN_OUTPUT_DIR}"
 
 for split in train validation test; do
-  python -m seqtrainer.adapters.ipromp_inference \
-    --input-fasta "${RUN_DIR}/ipromp_fasta/${split}.fasta" \
-    --output-csv "${RUN_DIR}/external_predictions/${split}_predictions.csv" \
-    --split "${split}" \
-    --dnabert-dir "${DNABERT_DIR}" \
-    --model-dir "${IPROMP_MODEL_DIR}" \
-    --species-id 10 \
-    --kmer-size 6 \
-    --max-length 300 \
-    --batch-size "${BATCH_SIZE:-16}" \
-    --seed 42 \
-    --device cuda
+  apptainer exec --nv --cleanenv \
+    "${COMMON_BINDS[@]}" \
+    "${IMAGE}" \
+    python -m seqtrainer.adapters.ipromp_offline \
+      --input-fasta "${RUN_OUTPUT_DIR}/ipromp_fasta/${split}.fasta" \
+      --output-csv "/work/external_predictions/${split}_predictions.csv" \
+      --metadata-json "/work/external_predictions/${split}_metadata.json" \
+      --dnabert-dir /models/DNABERT-6 \
+      --model-dir /models/ipromp_ecoli \
+      --species-id 10 \
+      --token-max-length 128 \
+      --batch-size 16 \
+      --device cuda
 done
 
-seqtrainer benchmark run "${CONFIG_PATH}" --base-dir "${WORK_ROOT}" --strict
-cp -a "${RUN_DIR}/." "${FINAL_OUTPUT_DIR}/"
+apptainer exec --nv --cleanenv \
+  "${COMMON_BINDS[@]}" \
+  "${IMAGE}" \
+  seqtrainer benchmark run "${CONFIG_PATH}" \
+    --base-dir / \
+    --output-dir "${RUN_OUTPUT_DIR}" \
+    --strict
 
-echo "Completed iPro-MP benchmark"
-echo "Persistent results: ${FINAL_OUTPUT_DIR}"
+cp -a "${SCRATCH_ROOT}/outputs" "${FINAL_OUTPUT_DIR}/"
+cp -a "${SCRATCH_ROOT}/external_predictions" "${FINAL_OUTPUT_DIR}/"
+echo "Done. Results copied to ${FINAL_OUTPUT_DIR}"

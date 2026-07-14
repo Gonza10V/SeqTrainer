@@ -73,6 +73,7 @@ def run_ipromp_external_predictions(
     split_summary = summarize_split_frames(config, frames)
     out_dir = _resolve_output_dir(config, base_dir=base_dir, output_dir=output_dir)
     prediction_paths = _prediction_paths(config, base_dir=base_dir, out_dir=out_dir)
+    metadata_paths = _metadata_paths(config, base_dir=base_dir, out_dir=out_dir)
 
     missing = [str(path) for path in prediction_paths.values() if not path.exists()]
     if missing:
@@ -124,6 +125,13 @@ def run_ipromp_external_predictions(
         model_metadata={
             "mode": "external_iProMP_predictions",
             "prediction_files": {split: str(path) for split, path in prediction_paths.items()},
+            "species_id": dict(config.model.params).get("species_id"),
+            "species_name": dict(config.model.params).get("species_name"),
+            "token_max_length": dict(config.model.params).get("token_max_length")
+            or dict(config.model.params).get("max_length"),
+            "ensemble_method": dict(config.model.params).get("ensemble_method", "mean_positive_class_probability"),
+            "fold_checkpoint_names": dict(config.model.params).get("fold_checkpoint_names"),
+            "truncation_metadata": _read_metadata_files(metadata_paths),
         },
     )
     write_benchmark_outputs(
@@ -198,6 +206,39 @@ def _prediction_paths(
             path = root / path
         paths[split] = path
     return paths
+
+
+def _metadata_paths(
+    config: BenchmarkConfig,
+    *,
+    base_dir: str | Path | None,
+    out_dir: Path,
+) -> dict[str, Path]:
+    params = dict(config.model.params)
+    keys = {
+        "train": "train_metadata_json",
+        "validation": "validation_metadata_json",
+        "test": "test_metadata_json",
+    }
+    paths = {}
+    for split, key in keys.items():
+        raw = params.get(key) or str(out_dir / "external_predictions" / f"{split}_metadata.json")
+        path = Path(str(raw))
+        if not path.is_absolute():
+            root = Path(base_dir) if base_dir is not None else Path.cwd()
+            path = root / path
+        paths[split] = path
+    return paths
+
+
+def _read_metadata_files(paths: dict[str, Path]) -> dict[str, Any]:
+    import json
+
+    metadata: dict[str, Any] = {}
+    for split, path in paths.items():
+        if path.exists():
+            metadata[split] = json.loads(path.read_text(encoding="utf-8"))
+    return metadata
 
 
 def _resolve_output_dir(

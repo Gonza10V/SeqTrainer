@@ -1,67 +1,112 @@
-# SeqTrainer SG HPC Workflows
+# SeqTrainer Alpine Offline Benchmarks
 
-This folder collects the Alpine/HPC workflows for the SeqTrainer promoter
-benchmark. It is intentionally separate from the Colab notebooks so the HPC
-submission scripts, TOML configs, and runtime patches are easy to find.
+**OFFLINE ALPINE REQUIREMENT:** Alpine jobs in this folder are execution-only. Do not run `git`, `pip`, `conda`, Hugging Face downloads, Zenodo downloads, or source patching inside Slurm. Build and transfer the offline bundle before submitting jobs.
 
-## Folder Layout
+## What This Folder Runs
 
-| Folder | Purpose | Main entry point |
-| --- | --- | --- |
-| `dnabert2_alpine/` | DNABERT2 full fine-tuning on Alpine/A100-style hardware | `run_dnabert2_finetune_alpine.sbatch` |
-| `ipromp_alpine/` | Official iPro-MP E. coli pretrained five-fold ensemble inference | `run_ipromp_alpine.sbatch` |
+These workflows run the same promoter benchmark split used by CNN and Colab runs:
 
-## Shared Scientific Contract
+- train: `train_EP_DNA_BERT2_genomic_order.csv`
+- validation: `eval_EP_DNA_BERT2_genomic_order.csv`
+- test: `test_EP_DNA_BERT2_genomic_order.csv`
+- labels: `1 = promoter`, `0 = non-promoter/background`
+- seed: `42`
+- threshold: selected on validation only, using MCC
+- final reporting: held-out test metrics, primarily MCC and AUPRC
 
-Both workflows are designed to stay comparable with the CNN-v2 benchmark:
+## Offline Bundle Layout
 
-- same promoter-classification task;
-- same predefined train/validation/test split filenames;
-- seed `42`;
-- no threshold tuning on the test set;
-- threshold selected on validation MCC only;
-- final ranking by held-out test MCC first and test AUPRC second;
-- artifacts written as CSV/JSON manifests wherever possible.
-
-The expected split files are:
+Stage this bundle outside Alpine, then transfer it to a project path such as `/projects/$USER/seqtrainer-offline`:
 
 ```text
-train_EP_DNA_BERT2_genomic_order.csv
-eval_EP_DNA_BERT2_genomic_order.csv
-test_EP_DNA_BERT2_genomic_order.csv
+seqtrainer-offline/
+  image/seqtrainer-alpine-gpu.sif
+  repository/SeqTrainer/
+  models/
+    DNABERT-2-117M/
+    DNABERT-6/
+    ipromp_ecoli/
+      10_fold_1.pth
+      10_fold_2.pth
+      10_fold_3.pth
+      10_fold_4.pth
+      10_fold_5.pth
+  data/promoter_classification/
+    train_EP_DNA_BERT2_genomic_order.csv
+    eval_EP_DNA_BERT2_genomic_order.csv
+    test_EP_DNA_BERT2_genomic_order.csv
+  manifests/
+    offline_bundle_manifest.json
+    repository_revision.txt
+    SHA256SUMS
 ```
 
-Use the AIxBio `Promoter Classification/Data` folder or the repository's
-`data/data_DNABERT/promoter_classification_DNABERT.zip` source. Do not reshuffle
-or regenerate splits for these model comparisons.
+The Apptainer definition is at `containers/seqtrainer_alpine_gpu.def`. Build it on an internet-enabled machine, not inside the Slurm job.
 
-## DNABERT2 Alpine
+## Validate Before Submitting
 
-Use `dnabert2_alpine/` for claim-bearing DNABERT2 fine-tuning when Colab is too
-slow or too memory-constrained. The config keeps the same comparison surface as
-CNN-v2, but uses the DNABERT2 backbone with the HPC resource profile documented
-in that folder's README.
+From Alpine login node:
 
-## iPro-MP Alpine
+```bash
+export BUNDLE_ROOT=/projects/$USER/seqtrainer-offline
+apptainer exec --nv --cleanenv \
+  --bind "$BUNDLE_ROOT:/bundle:ro" \
+  --bind "$BUNDLE_ROOT/repository/SeqTrainer:/repo:ro" \
+  --bind "$BUNDLE_ROOT/models:/models:ro" \
+  --bind "$BUNDLE_ROOT/data:/data:ro" \
+  "$BUNDLE_ROOT/image/seqtrainer-alpine-gpu.sif" \
+  python /repo/tools/offline_prep/validate_offline_bundle.py --bundle-root /bundle --model dnabert2
+```
 
-Use `ipromp_alpine/` for the official iPro-MP E. coli pretrained model 10
-five-fold ensemble. The workflow downloads only `10_fold_1.pth` through
-`10_fold_5.pth` from Zenodo record `15180139` and downloads DNABERT-6 from
-Hugging Face model `zhihan1996/DNA_bert_6`.
+Use `--model ipromp` for the iPro-MP bundle check.
 
-The five iPro-MP folds are pretrained model folds, not SeqTrainer data folds.
-Each fold scores the same validation/test records, the five probabilities are
-averaged per sequence, validation MCC selects one threshold, and that threshold
-is applied unchanged to test.
+## Submit Jobs
 
-## Manual Values To Edit
+DNABERT2 full fine-tuning:
 
-Before submitting on Alpine, users usually only need to edit:
+```bash
+cd /projects/$USER/seqtrainer-offline/repository/SeqTrainer
+export BUNDLE_ROOT=/projects/$USER/seqtrainer-offline
+sbatch notebooks/benchmarks_sg/sg_hpc/dnabert2_alpine/run_dnabert2_finetune_alpine.sbatch
+```
 
-- Slurm allocation/account name in the `sbatch --account=...` command or script;
-- optional partition/QoS if their allocation requires a different one;
-- paths to copied data if not using the repository ZIP;
-- wall time/memory if a site policy requires smaller values.
+iPro-MP E. coli five-fold external evaluation:
 
-Do not edit seed, split filenames, threshold policy, or metric list when the goal
-is direct comparison with CNN-v2, DNABERT2, and iPro-MP recorded results.
+```bash
+cd /projects/$USER/seqtrainer-offline/repository/SeqTrainer
+export BUNDLE_ROOT=/projects/$USER/seqtrainer-offline
+sbatch notebooks/benchmarks_sg/sg_hpc/ipromp_alpine/run_ipromp_alpine.sbatch
+```
+
+After `sbatch`, monitor with the printed job id:
+
+```bash
+squeue -u $USER
+tail -f seqtrainer-dnabert2-ft-<JOBID>.out
+tail -f seqtrainer-ipromp-<JOBID>.out
+```
+
+Replace `<JOBID>` with the number printed by `sbatch`.
+
+## Outputs
+
+Each completed run writes:
+
+- `metrics.csv`
+- `metrics.json`
+- `predictions.csv`
+- `manifest.json`
+- `history.csv` when training occurs
+- `checkpoints/` when training occurs
+
+Default final copy locations:
+
+- DNABERT2: `/projects/$USER/seqtrainer-results/dnabert2/<JOBID>/`
+- iPro-MP: `/projects/$USER/seqtrainer-results/ipromp/<JOBID>/`
+
+## Troubleshooting
+
+- Missing model files: rebuild or restage the offline bundle; do not download inside Slurm.
+- Invalid split CSVs: ensure every split has `sequence,label` and binary labels `0/1`.
+- Permission errors: set `FINAL_OUTPUT_DIR` to a writable project directory before `sbatch`.
+- GPU allocation errors: keep the configured `aa100` partition and A100 GPU requests unless Alpine support tells you otherwise.

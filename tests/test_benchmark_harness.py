@@ -374,7 +374,7 @@ output_dir = "outputs/ignored"
     assert result.status == "skipped"
     assert (tmp_path / "skipped" / "manifest.json").exists()
     assert result.manifest["extra"]["status"] == "skipped"
-    assert "DNABERT2 benchmark runner is not installed" in result.manifest["extra"]["skip_reason"]
+    assert "Missing train split file" in result.manifest["extra"]["skip_reason"]
 
 
 def test_benchmark_runner_dispatches_registered_dnabert2_runner(tmp_path, monkeypatch):

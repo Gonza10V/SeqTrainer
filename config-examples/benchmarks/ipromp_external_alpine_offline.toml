@@ -1,7 +1,7 @@
 [experiment]
-name = "ipromp_external_ep_genomic_order"
+name = "ipromp_external_alpine_offline"
 task = "bacterial_promoter_prediction"
-description = "Official iPro-MP E. coli five-fold ensemble on the shared SeqTrainer split."
+description = "Offline Alpine iPro-MP E. coli five-fold ensemble on the shared SeqTrainer split."
 seed = 42
 
 [dataset]
@@ -14,9 +14,9 @@ sequence_field = "sequence"
 label_field = "label"
 
 [dataset.split_files]
-train = "data/promoter_classification/train_EP_DNA_BERT2_genomic_order.csv"
-validation = "data/promoter_classification/eval_EP_DNA_BERT2_genomic_order.csv"
-test = "data/promoter_classification/test_EP_DNA_BERT2_genomic_order.csv"
+train = "/data/promoter_classification/train_EP_DNA_BERT2_genomic_order.csv"
+validation = "/data/promoter_classification/eval_EP_DNA_BERT2_genomic_order.csv"
+test = "/data/promoter_classification/test_EP_DNA_BERT2_genomic_order.csv"
 
 [label]
 source = "provided_binary"
@@ -36,27 +36,36 @@ pad_or_trim = false
 [preprocessing.params]
 kmer_size = 6
 tokenization = "overlapping_6mer"
-model_max_length = 300
+model_max_length = 128
 
 [model]
 family = "ipromp"
 name = "ipromp_ecoli_k12_mg1655_official_ensemble"
-version = "zenodo-15180139"
+version = "zenodo-15180139-offline"
 
 [model.params]
-adapter_mode = "seqtrainer_official_fold_ensemble"
+adapter_mode = "seqtrainer_offline_fold_ensemble"
 species_id = 10
 species_name = "Escherichia coli str K-12 substr. MG1655"
 kmer_size = 6
-folds = 5
-max_length = 300
-inference_batch_size = 16
-dnabert6_source = "zhihan1996/DNA_bert_6"
-pretrained_model_source = "https://doi.org/10.5281/zenodo.15180139"
-mapping_csv = "outputs/benchmarks/ipromp_external_ep_genomic_order/ipromp_id_mapping.csv"
-validation_predictions_csv = "outputs/benchmarks/ipromp_external_ep_genomic_order/external_predictions/validation_predictions.csv"
-test_predictions_csv = "outputs/benchmarks/ipromp_external_ep_genomic_order/external_predictions/test_predictions.csv"
-train_predictions_csv = "outputs/benchmarks/ipromp_external_ep_genomic_order/external_predictions/train_predictions.csv"
+token_max_length = 128
+fold_checkpoint_names = [
+  "10_fold_1.pth",
+  "10_fold_2.pth",
+  "10_fold_3.pth",
+  "10_fold_4.pth",
+  "10_fold_5.pth",
+]
+ensemble_method = "mean_positive_class_probability"
+dnabert6_dir = "/models/DNABERT-6"
+ipromp_model_dir = "/models/ipromp_ecoli"
+mapping_csv = "/work/outputs/benchmarks/ipromp_external_alpine_offline/ipromp_id_mapping.csv"
+train_predictions_csv = "/work/external_predictions/train_predictions.csv"
+validation_predictions_csv = "/work/external_predictions/validation_predictions.csv"
+test_predictions_csv = "/work/external_predictions/test_predictions.csv"
+train_metadata_json = "/work/external_predictions/train_metadata.json"
+validation_metadata_json = "/work/external_predictions/validation_metadata.json"
+test_metadata_json = "/work/external_predictions/test_metadata.json"
 
 [training]
 seed = 42
@@ -86,7 +95,7 @@ metrics = [
 ]
 
 [outputs]
-output_dir = "outputs/benchmarks/ipromp_external_ep_genomic_order"
+output_dir = "/work/outputs/benchmarks/ipromp_external_alpine_offline"
 save_json = true
 save_csv = true
 save_predictions = true
@@ -98,7 +107,6 @@ precision = "float32"
 [environment.params]
 platform = "CU Boulder Alpine"
 partition = "aa100"
-gpu = "NVIDIA A100"
-python = "3.10"
-torch = "2.2"
-transformers = "4.29.2"
+qos = "gpu-normal"
+gpu = "a100-40gb"
+offline_execution = true

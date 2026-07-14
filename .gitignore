@@ -10,3 +10,27 @@ dnabert-out
 dnabertvenv
 __pycache__/
 *.py[cod]
+
+# SeqTrainer benchmark outputs and private offline assets.
+outputs/
+scratch/
+*.sif
+*.sqsh
+*.tar
+*.tar.gz
+*.pt
+*.pth
+*.bin
+*.safetensors
+.cache/
+huggingface/
+hf_cache/
+DNABERT-6/
+DNABERT-2-117M/
+ipromp_ecoli/
+seqtrainer-offline/
+offline_bundle/
+SHA256SUMS
+data/promoter_classification/*.csv
+notebooks/benchmarks_sg/sg_hpc/**/outputs/
+notebooks/benchmarks_sg/sg_hpc/**/scratch/

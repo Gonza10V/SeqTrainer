@@ -1,7 +1,7 @@
 [experiment]
-name = "dnabert2_finetune_ep_genomic_order"
+name = "dnabert2_finetune_alpine_offline"
 task = "bacterial_promoter_prediction"
-description = "Full DNABERT2 fine-tuning benchmark on the shared E. coli promoter classification split."
+description = "Offline Alpine DNABERT2 full fine-tuning on the shared E. coli promoter split."
 seed = 42
 
 [dataset]
@@ -14,9 +14,9 @@ sequence_field = "sequence"
 label_field = "label"
 
 [dataset.split_files]
-train = "data/promoter_classification/train_EP_DNA_BERT2_genomic_order.csv"
-validation = "data/promoter_classification/eval_EP_DNA_BERT2_genomic_order.csv"
-test = "data/promoter_classification/test_EP_DNA_BERT2_genomic_order.csv"
+train = "/data/promoter_classification/train_EP_DNA_BERT2_genomic_order.csv"
+validation = "/data/promoter_classification/eval_EP_DNA_BERT2_genomic_order.csv"
+test = "/data/promoter_classification/test_EP_DNA_BERT2_genomic_order.csv"
 
 [label]
 source = "provided_binary"
@@ -34,42 +34,42 @@ sequence_length = 300
 pad_or_trim = false
 
 [preprocessing.params]
-model_max_length = 70
+model_max_length = 128
 padding = "longest"
+pad_to_multiple_of = 8
 
 [model]
 family = "dnabert2"
 name = "zhihan1996/DNABERT-2-117M"
-version = "7bce263b15377fc15361f52cfab88f8b586abda0"
+version = "offline_snapshot_7bce263b15377fc15361f52cfab88f8b586abda0"
 
 [model.params]
 mode = "full_finetune"
+local_model_dir = "/models/DNABERT-2-117M"
+source_revision = "7bce263b15377fc15361f52cfab88f8b586abda0"
+allow_download = false
+require_model_files = true
 pooling = "mean"
 trust_remote_code = true
-allow_download = true
-require_model_files = true
-revision = "7bce263b15377fc15361f52cfab88f8b586abda0"
 classifier_dropout = 0.1
-fine_tuning_scope = "all_encoder_layers"
-
-disable_flash_attention = true
+disable_flash_attention = false
 
 [training]
 seed = 42
 batch_size = 4
-max_epochs = 4
+max_epochs = 5
 learning_rate = 0.00003
 
 [training.params]
 optimizer = "adamw"
 loss = "bce_with_logits"
-warmup_ratio = 0.1
+warmup_ratio = 0.06
 weight_decay = 0.01
+early_stopping_metric = "mcc"
 early_stopping_patience = 2
-early_stopping_metric = "validation_mcc"
 gradient_accumulation_steps = 8
+gradient_checkpointing = true
 max_grad_norm = 1.0
-diagnostics = ["train_loss", "validation_loss", "validation_mcc", "learning_rate"]
 
 [evaluation]
 primary_metric = "mcc"
@@ -88,11 +88,18 @@ metrics = [
 ]
 
 [outputs]
-output_dir = "outputs/benchmarks/dnabert2_finetune_ep_genomic_order"
+output_dir = "/work/outputs/benchmarks/dnabert2_finetune_alpine_offline"
 save_json = true
 save_csv = true
 save_predictions = true
 
 [environment]
-device = "auto"
+device = "cuda"
 precision = "bf16"
+
+[environment.params]
+platform = "CU Boulder Alpine"
+partition = "aa100"
+qos = "gpu-long"
+gpu = "a100-40gb"
+offline_execution = true

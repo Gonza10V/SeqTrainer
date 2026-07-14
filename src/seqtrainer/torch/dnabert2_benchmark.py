@@ -54,7 +54,10 @@ def run_dnabert2_csv_splits(
     params = dict(config.model.params)
     train_params = dict(config.training.params)
     allow_download = bool(params.get("allow_download", False))
-    local_files_only = not allow_download
+    local_model_dir = params.get("local_model_dir")
+    require_model_files = bool(params.get("require_model_files", False))
+    model_source = str(local_model_dir or config.model.name)
+    local_files_only = not allow_download or bool(local_model_dir)
     trust_remote_code = bool(params.get("trust_remote_code", True))
 
     device = _resolve_device(config.environment.device, torch)
@@ -63,12 +66,13 @@ def run_dnabert2_csv_splits(
 
     if tokenizer is None or encoder is None:
         tokenizer, encoder = _load_huggingface_dnabert2(
-            config.model.name,
+            model_source,
             device=device,
             trust_remote_code=trust_remote_code,
             local_files_only=local_files_only,
             disable_flash_attention=bool(params.get("disable_flash_attention", False)),
-            revision=params.get("revision"),
+            revision=None if local_model_dir else params.get("revision"),
+            require_model_files=require_model_files,
         )
     freeze_encoder = str(params.get("mode", "frozen_embedding_classifier")) != "full_finetune"
     if freeze_encoder:
@@ -240,6 +244,10 @@ def run_dnabert2_csv_splits(
         threshold=best_threshold,
         model_metadata={
             "mode": params.get("mode", "frozen_embedding_classifier"),
+            "offline_execution": bool(local_model_dir and not allow_download),
+            "allow_download": allow_download,
+            "local_model_dir": str(local_model_dir) if local_model_dir else None,
+            "source_revision": params.get("source_revision") or params.get("revision"),
             "pooling": params.get("pooling", "mean"),
             "freeze_encoder": freeze_encoder,
             "checkpoint": str(checkpoint_path),
@@ -420,6 +428,10 @@ def _run_frozen_embedding_classifier(
         threshold=best_threshold,
         model_metadata={
             "mode": "frozen_embedding_classifier",
+            "offline_execution": bool(params.get("local_model_dir") and not bool(params.get("allow_download", False))),
+            "allow_download": bool(params.get("allow_download", False)),
+            "local_model_dir": str(params.get("local_model_dir")) if params.get("local_model_dir") else None,
+            "source_revision": params.get("source_revision") or params.get("revision"),
             "pooling": pooling,
             "freeze_encoder": True,
             "embedding_cache_dir": str(embedding_dir),
@@ -509,7 +521,23 @@ def _load_huggingface_dnabert2(
     local_files_only: bool,
     disable_flash_attention: bool = False,
     revision: str | None = None,
+    require_model_files: bool = False,
 ) -> tuple[Any, Any]:
+    local_model_path = Path(model_name)
+    if local_model_path.exists():
+        _validate_local_dnabert2_dir(
+            local_model_path,
+            disable_flash_attention=disable_flash_attention,
+            require_model_files=require_model_files,
+        )
+        local_files_only = True
+        revision = None
+    elif require_model_files:
+        raise BenchmarkSkipped(
+            f"DNABERT2 local_model_dir does not exist: {local_model_path}. "
+            "Stage the offline bundle before submitting the Alpine job."
+        )
+
     try:
         from transformers import AutoConfig, AutoModel, AutoTokenizer
     except ModuleNotFoundError as exc:  # pragma: no cover - depends on optional extras
@@ -717,24 +745,87 @@ def _load_dnabert2_from_state_dict(
     from config and loading the state dict directly keeps all weights on CPU.
     """
     import torch
-    from huggingface_hub import hf_hub_download
     from transformers import AutoModel
 
     encoder = AutoModel.from_config(config, trust_remote_code=trust_remote_code)
-    checkpoint_path = hf_hub_download(
-        repo_id=model_name,
-        filename="pytorch_model.bin",
-        local_files_only=local_files_only,
-        revision=revision,
-    )
-    try:
-        state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-    except TypeError:  # pragma: no cover - older torch compatibility
-        state_dict = torch.load(checkpoint_path, map_location="cpu")
+    checkpoint_path = _resolve_dnabert2_checkpoint(model_name, local_files_only=local_files_only, revision=revision)
+    state_dict = _load_checkpoint_state_dict(checkpoint_path, torch)
     if isinstance(state_dict, dict) and "state_dict" in state_dict:
         state_dict = state_dict["state_dict"]
     encoder.load_state_dict(state_dict, strict=False)
     return encoder
+
+
+def _validate_local_dnabert2_dir(
+    model_dir: Path,
+    *,
+    disable_flash_attention: bool,
+    require_model_files: bool,
+) -> None:
+    """Validate that a DNABERT2 snapshot is complete enough for offline loading."""
+    if not require_model_files:
+        return
+    required = [
+        "config.json",
+        "configuration_bert.py",
+        "bert_layers.py",
+        "bert_padding.py",
+    ]
+    if not disable_flash_attention:
+        required.append("flash_attn_triton.py")
+    missing = [name for name in required if not (model_dir / name).is_file()]
+    if not any((model_dir / name).is_file() for name in ("tokenizer.json", "vocab.txt")):
+        missing.append("tokenizer.json or vocab.txt")
+    if not any((model_dir / name).is_file() for name in ("pytorch_model.bin", "model.safetensors")):
+        missing.append("pytorch_model.bin or model.safetensors")
+    if missing:
+        raise BenchmarkSkipped(
+            "DNABERT2 offline model directory is incomplete: "
+            f"{model_dir}. Missing: {', '.join(missing)}"
+        )
+
+
+def _resolve_dnabert2_checkpoint(
+    model_name: str,
+    *,
+    local_files_only: bool,
+    revision: str | None,
+) -> Path:
+    model_dir = Path(model_name)
+    if model_dir.exists():
+        for filename in ("pytorch_model.bin", "model.safetensors"):
+            checkpoint = model_dir / filename
+            if checkpoint.is_file():
+                return checkpoint
+        raise BenchmarkSkipped(
+            f"DNABERT2 offline model directory has no pytorch_model.bin or model.safetensors: {model_dir}"
+        )
+    from huggingface_hub import hf_hub_download
+
+    return Path(
+        hf_hub_download(
+            repo_id=model_name,
+            filename="pytorch_model.bin",
+            local_files_only=local_files_only,
+            revision=revision,
+        )
+    )
+
+
+def _load_checkpoint_state_dict(checkpoint_path: Path, torch: Any) -> Any:
+    if checkpoint_path.suffix == ".safetensors":
+        try:
+            from safetensors.torch import load_file
+        except ModuleNotFoundError as exc:
+            raise BenchmarkSkipped(
+                "DNABERT2 offline bundle uses model.safetensors, but safetensors is not installed "
+                "inside the container."
+            ) from exc
+        return load_file(str(checkpoint_path), device="cpu")
+    try:
+        return torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    except TypeError:  # pragma: no cover - older torch compatibility
+        return torch.load(checkpoint_path, map_location="cpu")
 
 
 def _load_dnabert2_official_encoder(

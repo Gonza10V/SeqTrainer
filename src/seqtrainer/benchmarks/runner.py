@@ -46,7 +46,7 @@ def run_benchmark(
             return _write_skipped_result(config, base_dir=base_dir, output_dir=output_dir, reason=reason)
         try:
             return run_dnabert2_csv_splits(config, base_dir=base_dir, output_dir=output_dir)
-        except BenchmarkSkipped as exc:
+        except (BenchmarkSkipped, FileNotFoundError) as exc:
             if not allow_skip:
                 raise
             return _write_skipped_result(config, base_dir=base_dir, output_dir=output_dir, reason=str(exc))

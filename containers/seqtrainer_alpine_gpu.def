@@ -1,0 +1,39 @@
+Bootstrap: docker
+From: nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
+
+%post
+    set -eux
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        git \
+        python3.10 \
+        python3.10-dev \
+        python3-pip
+    rm -rf /var/lib/apt/lists/*
+    python3.10 -m pip install --no-cache-dir --upgrade pip setuptools wheel
+    python3.10 -m pip install --no-cache-dir \
+        numpy==1.26.4 \
+        pandas==2.2.2 \
+        scikit-learn==1.5.1 \
+        scipy==1.13.1 \
+        torch==2.2.2 \
+        transformers==4.40.2 \
+        tokenizers==0.19.1 \
+        safetensors==0.4.3 \
+        rdflib==7.0.0 \
+        biopython==1.83
+
+%environment
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
+    export HF_HUB_OFFLINE=1
+    export TRANSFORMERS_OFFLINE=1
+    export HF_DATASETS_OFFLINE=1
+    export HF_HUB_DISABLE_TELEMETRY=1
+    export TOKENIZERS_PARALLELISM=false
+    export PIP_NO_INDEX=1
+
+%runscript
+    exec "$@"

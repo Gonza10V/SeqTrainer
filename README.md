@@ -75,3 +75,30 @@ A starter notebook series is available in `notebooks/tutorials/`:
 - `09_gemma3_4b_promoter_classification_regression.ipynb`: SeqTrainer-based Gemma 3 4B workflow for promoter classification and regression
 - `10_promoter_activity_knn_retrieval.ipynb`: KNN retrieval workflow that returns ranked DNA sequences closest to a requested promoter activity
 - `11_titans_miras_memory_context_promoter_classification.ipynb`: simplified Titans/MIRAS Memory-as-Context promoter classification workflow
+
+## Bacterial genome next-token prediction (first pass)
+
+Pinned accession: **NC_000913.3** (E. coli K-12 MG1655; RefSeq), with optional `datasets` CLI path pinned to `GCF_000005845.2`.
+
+### One-command data setup
+```bash
+python scripts/download_genomes.py && python scripts/preprocess_genome_ntp.py
+```
+
+### Smoke-train
+```bash
+python train_ntp.py --epochs 1 --batch-size 4 --chunk-len 128 --stride 128 --out runs/ntp_smoke
+```
+
+### Evaluate
+```bash
+python eval_ntp.py --checkpoint runs/ntp_smoke/checkpoint.pt --chunk-len 128 --stride 128
+```
+
+### Features in this first pass
+- Interval-based train/val/test split with explicit buffer to prevent leakage from overlapping genomic windows.
+- DNA tokenizer (`A/C/G/T/N`) with room for future tokenizer upgrades.
+- Small Titans/MIRAS-inspired **MAC** NTP model: local causal encoding + long-term memory state injected as context.
+- Memory decay gate and surprise proxy logging.
+- Genome manifest (`configs/genome_manifest.json`) for expansion groups: MG1655-only, then broader cohorts.
+- Downstream protocol stubs for promoter classification/activity transfer comparisons.

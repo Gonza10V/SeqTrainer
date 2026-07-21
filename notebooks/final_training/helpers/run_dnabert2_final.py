@@ -309,6 +309,7 @@ def main():
     parser.add_argument("--resume", choices=("latest", "best", "none"), default="latest")
     parser.add_argument("--max-length", type=int, default=104)
     parser.add_argument("--run-max-length-128", action="store_true")
+    parser.add_argument("--selection-only", action="store_true")
     parser.add_argument("--loss-mode", choices=("bce", "focal"), default="bce")
     args = parser.parse_args()
 
@@ -544,7 +545,8 @@ def main():
     threshold = float(state["best"]["threshold"])
     metrics = {}
     prediction_rows = []
-    for split in ("train", "validation", "test"):
+    report_splits = ("train", "validation") if args.selection_only else ("train", "validation", "test")
+    for split in report_splits:
         labels, probabilities, loss = evaluate(model, prediction_loaders[split], criterion, device, torch, use_amp)
         metrics[split] = classification_metrics(labels, probabilities, threshold, loss=loss)
         for index, (label, probability) in enumerate(zip(labels, probabilities)):
@@ -567,6 +569,7 @@ def main():
         "negative_positive_ratio": negative_positive_ratio,
         "class_weighting_applied": use_pos_weight,
     }
+    manifest["selection_only"] = args.selection_only
     manifest["runtime_seconds"] = time.perf_counter() - run_started
     manifest["peak_gpu_memory_mb"] = torch.cuda.max_memory_allocated() / 1024**2 if use_amp else None
     write_json_atomic(manifest, args.local_output_dir / "manifest.json")

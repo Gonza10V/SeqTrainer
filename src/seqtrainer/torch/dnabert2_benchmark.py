@@ -130,7 +130,7 @@ def run_dnabert2_csv_splits(
         lr=config.training.learning_rate or 1e-4,
         weight_decay=float(train_params.get("weight_decay", 0.01)),
     )
-    max_epochs = config.training.max_epochs or 3
+    max_epochs = 3 if config.training.max_epochs is None else int(config.training.max_epochs)
     gradient_accumulation_steps = max(
         1, int(train_params.get("gradient_accumulation_steps", 1))
     )
@@ -339,7 +339,7 @@ def _run_frozen_embedding_classifier(
         lr=config.training.learning_rate or 1e-3,
         weight_decay=float(train_params.get("weight_decay", 0.01)),
     )
-    max_epochs = config.training.max_epochs or 20
+    max_epochs = 20 if config.training.max_epochs is None else int(config.training.max_epochs)
     total_steps = max(1, max_epochs)
     warmup_steps = int(total_steps * float(train_params.get("warmup_ratio", 0.0)))
     scheduler = _linear_warmup_scheduler(optimizer, warmup_steps, total_steps)

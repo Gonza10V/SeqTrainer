@@ -281,12 +281,41 @@ def _normalize_seqtrainer_predictions(
     if missing:
         raise ValueError(f"Normalized iPro-MP predictions are missing columns: {sorted(missing)}")
 
+    table["split"] = table["split"].astype(str)
+    target_mapping = mapping.copy()
+    target_mapping["split"] = target_mapping["split"].astype(str)
+    if expected_split is not None:
+        target_mapping = target_mapping[target_mapping["split"] == expected_split]
+
     if "sequence_id" in table.columns:
-        merged = table.merge(mapping, on=["split", "sequence_id"], how="left", suffixes=("_pred", ""))
+        table["sequence_id"] = table["sequence_id"].astype(str)
+        target_mapping["sequence_id"] = target_mapping["sequence_id"].astype(str)
+        prediction_keys = table[["split", "sequence_id"]]
+        if prediction_keys.duplicated().any():
+            raise ValueError("Normalized iPro-MP predictions contain duplicate split/sequence_id rows.")
+        expected_keys = target_mapping[["split", "sequence_id"]]
+        missing_keys = expected_keys.merge(prediction_keys, on=["split", "sequence_id"], how="left", indicator=True)
+        missing_keys = missing_keys[missing_keys["_merge"] == "left_only"]
+        unexpected_keys = prediction_keys.merge(expected_keys, on=["split", "sequence_id"], how="left", indicator=True)
+        unexpected_keys = unexpected_keys[unexpected_keys["_merge"] == "left_only"]
+        if not missing_keys.empty or not unexpected_keys.empty:
+            raise ValueError(
+                "Normalized iPro-MP predictions must contain exactly one row for every "
+                "mapped split/sequence_id. "
+                f"Missing rows: {len(missing_keys)}; unexpected rows: {len(unexpected_keys)}."
+            )
+        merged = target_mapping.merge(table, on=["split", "sequence_id"], how="left", suffixes=("", "_pred"))
     else:
         merged = table.copy()
         merged["row_index"] = merged.groupby("split").cumcount()
-        merged = merged.merge(mapping, on=["split", "row_index"], how="left", suffixes=("_pred", ""))
+        expected_counts = target_mapping.groupby("split").size().to_dict()
+        actual_counts = merged.groupby("split").size().to_dict()
+        if actual_counts != expected_counts:
+            raise ValueError(
+                "Normalized iPro-MP predictions must contain exactly one row for every "
+                f"mapped split. Expected counts: {expected_counts}; received: {actual_counts}."
+            )
+        merged = target_mapping.merge(merged, on=["split", "row_index"], how="left", suffixes=("", "_pred"))
     if merged["label"].isna().any() or merged["sequence"].isna().any():
         raise ValueError("Could not map every normalized iPro-MP prediction row back to the benchmark split.")
     if "label_pred" in merged.columns:
@@ -316,6 +345,10 @@ def _normalize_official_predictions(
         table["source_prediction"] = table[prediction_col]
         if "probability" not in table.columns:
             table["prediction"] = table[prediction_col].astype(int)
+    if "probability" not in table.columns and "prediction" not in table.columns:
+        raise ValueError(
+            "Official iPro-MP predictions must include a probability or hard prediction column."
+        )
     split_mapping = mapping[mapping["split"] == split].copy()
     duplicated = split_mapping["sequence"].duplicated(keep=False)
     if duplicated.any() and "sequence_id" not in table.columns:
@@ -325,7 +358,10 @@ def _normalize_official_predictions(
             f"Use SeqTrainer-normalized output with sequence_id. Examples: {examples}"
         )
     merged = split_mapping.merge(table, on="sequence", how="left", suffixes=("", "_pred"))
-    if merged["probability"].isna().any() and "prediction" not in merged.columns:
+    if "probability" in merged.columns and merged["probability"].isna().any():
+        if "prediction" not in merged.columns or merged["prediction"].isna().any():
+            raise ValueError(f"Missing iPro-MP predictions for at least one {split} sequence.")
+    if "prediction" in merged.columns and merged["prediction"].isna().any():
         raise ValueError(f"Missing iPro-MP predictions for at least one {split} sequence.")
     if len(merged) != len(split_mapping):
         raise ValueError(f"iPro-MP prediction count mismatch for {split}: expected {len(split_mapping)}, got {len(merged)}")

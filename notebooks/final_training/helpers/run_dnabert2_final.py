@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
@@ -171,16 +172,16 @@ def encoder_layers(encoder: Any) -> list[Any]:
     raise RuntimeError("Could not locate DNABERT2 transformer layers for staged unfreezing.")
 
 
-def set_stage(encoder: Any, epoch: int) -> str:
+def set_stage(encoder: Any, epoch: int, head_only_epochs: int, unfreeze_top_layers: int) -> str:
     for parameter in encoder.parameters():
         parameter.requires_grad = False
-    if epoch == 1:
+    if epoch <= head_only_epochs:
         return "classifier_head_only"
     layers = encoder_layers(encoder)
-    for layer in layers[-4:]:
+    for layer in layers[-unfreeze_top_layers:]:
         for parameter in layer.parameters():
             parameter.requires_grad = True
-    return "top_four_layers"
+    return f"top_{unfreeze_top_layers}_layers"
 
 
 def collate_factory(tokenizer: Any, max_length: int, torch: Any):
@@ -223,6 +224,24 @@ def run_epoch(model, loader, optimizer, scheduler, scaler, criterion, device, to
     optimizer.zero_grad(set_to_none=True)
     total_loss = 0.0
     optimizer_steps = 0
+    pending_microbatches = 0
+
+    def step_optimizer(microbatches: int) -> None:
+        """Apply one logical batch, correcting the final short accumulation group."""
+        nonlocal optimizer_steps
+        scaler.unscale_(optimizer)
+        if microbatches < accumulation:
+            correction = accumulation / microbatches
+            for parameter in model.parameters():
+                if parameter.grad is not None:
+                    parameter.grad.mul_(correction)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+        scaler.step(optimizer)
+        scaler.update()
+        scheduler.step()
+        optimizer.zero_grad(set_to_none=True)
+        optimizer_steps += 1
+
     for batch_index, batch in enumerate(loader):
         labels = batch.pop("labels").to(device, non_blocking=True)
         batch = {key: value.to(device, non_blocking=True) for key, value in batch.items()}
@@ -230,15 +249,13 @@ def run_epoch(model, loader, optimizer, scheduler, scaler, criterion, device, to
             logits = model(batch)
             loss = loss_value(logits, labels, criterion, torch) / accumulation
         scaler.scale(loss).backward()
-        if (batch_index + 1) % accumulation == 0:
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
-            scaler.step(optimizer)
-            scaler.update()
-            scheduler.step()
-            optimizer.zero_grad(set_to_none=True)
-            optimizer_steps += 1
+        pending_microbatches += 1
+        if pending_microbatches == accumulation:
+            step_optimizer(pending_microbatches)
+            pending_microbatches = 0
         total_loss += float(loss.detach().item() * accumulation)
+    if pending_microbatches:
+        step_optimizer(pending_microbatches)
     return total_loss / max(len(loader), 1), optimizer_steps
 
 
@@ -268,6 +285,7 @@ def focal_loss(logits, labels, gamma, torch):
 
 
 def build_manifest(config, audit, env, best, threshold, drive_output, resume_source, token_report):
+    training = config["training"]
     return {
         "repository": "https://github.com/simplyshree/SeqTrainer",
         "branch": config["branch"],
@@ -280,11 +298,15 @@ def build_manifest(config, audit, env, best, threshold, drive_output, resume_sou
         "classifier": "LayerNorm(1536) -> Linear(256) -> GELU -> Dropout(0.20) -> Linear(1)",
         "optimizer": "AdamW",
         "scheduler": "linear warmup then cosine decay",
-        "learning_rates": {"encoder": 1e-5, "classifier_head": 1e-4},
-        "weight_decay": 0.01,
+        "training": training,
+        "learning_rates": {
+            "encoder": training["encoder_learning_rate"],
+            "classifier_head": training["head_learning_rate"],
+        },
+        "weight_decay": training["weight_decay"],
         "loss": config["loss"],
-        "gradient_accumulation": 16,
-        "physical_batch_size": 2,
+        "gradient_accumulation": training["gradient_accumulation"],
+        "physical_batch_size": training["batch_size"],
         "precision": "fp16 training, fp32 validation/test probabilities",
         "best_epoch": best["epoch"],
         "best_validation_mcc": best["mcc"],
@@ -311,7 +333,27 @@ def main():
     parser.add_argument("--run-max-length-128", action="store_true")
     parser.add_argument("--selection-only", action="store_true")
     parser.add_argument("--loss-mode", choices=("bce", "focal"), default="bce")
+    parser.add_argument("--max-epochs", type=int, default=6)
+    parser.add_argument("--patience", type=int, default=2)
+    parser.add_argument("--head-only-epochs", type=int, default=1)
+    parser.add_argument("--unfreeze-top-layers", type=int, default=4)
+    parser.add_argument("--head-learning-rate", type=float, default=1e-4)
+    parser.add_argument("--encoder-learning-rate", type=float, default=1e-5)
+    parser.add_argument("--weight-decay", type=float, default=0.01)
+    parser.add_argument("--dropout", type=float, default=0.20)
+    parser.add_argument("--batch-size", type=int, default=2)
+    parser.add_argument("--gradient-accumulation", type=int, default=16)
+    parser.add_argument("--warmup-ratio", type=float, default=0.08)
     args = parser.parse_args()
+
+    if args.max_epochs < 1 or args.patience < 1 or args.head_only_epochs < 0:
+        raise ValueError("max_epochs and patience must be positive; head_only_epochs cannot be negative.")
+    if args.unfreeze_top_layers < 1 or args.batch_size < 1 or args.gradient_accumulation < 1:
+        raise ValueError("unfreeze_top_layers, batch_size, and gradient_accumulation must be positive.")
+    if not 0.0 <= args.dropout < 1.0 or not 0.0 <= args.warmup_ratio < 1.0:
+        raise ValueError("dropout and warmup_ratio must be in [0, 1).")
+    if args.head_learning_rate <= 0.0 or args.encoder_learning_rate <= 0.0 or args.weight_decay < 0.0:
+        raise ValueError("learning rates must be positive and weight_decay cannot be negative.")
 
     sys.path.insert(0, str(args.repo_dir / "src"))
     helper_dir = Path(__file__).resolve().parent
@@ -356,6 +398,20 @@ def main():
         "revision": "7bce263b15377fc15361f52cfab88f8b586abda0",
         "loss": args.loss_mode,
         "seed": 42,
+        "training": {
+            "max_epochs": args.max_epochs,
+            "patience": args.patience,
+            "head_only_epochs": args.head_only_epochs,
+            "unfreeze_top_layers": args.unfreeze_top_layers,
+            "head_learning_rate": args.head_learning_rate,
+            "encoder_learning_rate": args.encoder_learning_rate,
+            "weight_decay": args.weight_decay,
+            "dropout": args.dropout,
+            "batch_size": args.batch_size,
+            "gradient_accumulation": args.gradient_accumulation,
+            "effective_batch_size": args.batch_size * args.gradient_accumulation,
+            "warmup_ratio": args.warmup_ratio,
+        },
     }
     write_json_atomic(config, args.local_output_dir / "config.json")
     atomic_copy(args.local_output_dir / "config.json", args.drive_output_dir / "config.json")
@@ -379,7 +435,7 @@ def main():
     max_length = 128 if args.run_max_length_128 else args.max_length
     if args.run_max_length_128:
         print("Optional 128-token candidate enabled. It is compared by validation MCC/AUPRC only.")
-    model = DnaBertHead(encoder, torch, nn, dropout=0.20).to(device)
+    model = DnaBertHead(encoder, torch, nn, dropout=args.dropout).to(device)
     _enable_gradient_checkpointing(encoder)
     train_ratio = float(frames["train"]["label"].sum()) / len(frames["train"])
     negative_positive_ratio = (1.0 - train_ratio) / max(train_ratio, 1e-12)
@@ -395,13 +451,15 @@ def main():
         criterion = nn.BCEWithLogitsLoss()
         loss_description = "BCEWithLogitsLoss unweighted; measured ratio within balance limits"
     config["loss"] = loss_description
+    write_json_atomic(config, args.local_output_dir / "config.json")
+    atomic_copy(args.local_output_dir / "config.json", args.drive_output_dir / "config.json")
 
     loaders = {
         split: make_loader(
             frame,
             tokenizer,
             max_length,
-            batch_size=2,
+            batch_size=args.batch_size,
             torch=torch,
             shuffle=(split == "train"),
             workers=2,
@@ -413,24 +471,24 @@ def main():
             frame,
             tokenizer,
             max_length,
-            batch_size=2,
+            batch_size=args.batch_size,
             torch=torch,
             shuffle=False,
             workers=2,
         )
         for split, frame in frames.items()
     }
-    accumulation = 16
-    max_epochs = 6
-    patience = 2
-    train_steps = max(1, len(loaders["train"]) // accumulation)
+    accumulation = args.gradient_accumulation
+    max_epochs = args.max_epochs
+    patience = args.patience
+    train_steps = max(1, math.ceil(len(loaders["train"]) / accumulation))
     total_steps = max_epochs * train_steps
-    warmup_steps = max(1, int(total_steps * 0.08))
+    warmup_steps = max(1, int(total_steps * args.warmup_ratio))
     parameters = [
-        {"params": [p for p in encoder.parameters()], "lr": 1e-5},
-        {"params": [p for name, p in model.named_parameters() if not name.startswith("encoder.")], "lr": 1e-4},
+        {"params": [p for p in encoder.parameters()], "lr": args.encoder_learning_rate},
+        {"params": [p for name, p in model.named_parameters() if not name.startswith("encoder.")], "lr": args.head_learning_rate},
     ]
-    optimizer = torch.optim.AdamW(parameters, weight_decay=0.01)
+    optimizer = torch.optim.AdamW(parameters, weight_decay=args.weight_decay)
     scheduler = LambdaLR(
         optimizer,
         lambda step: min(1.0, step / max(warmup_steps, 1))
@@ -458,6 +516,13 @@ def main():
     local_resume = local_latest if args.resume == "latest" else local_best
     if args.resume != "none" and selected_resume.exists():
         state = restore_checkpoint(selected_resume, local_resume, torch)
+        saved_config = state.get("config", {})
+        resume_keys = ("max_length", "model", "revision", "loss", "training")
+        if any(saved_config.get(key) != config.get(key) for key in resume_keys):
+            raise RuntimeError(
+                "The requested profile differs from the checkpoint profile. "
+                "Use --resume none or choose a new output directory instead of mixing runs."
+            )
         model.load_state_dict(state["model"])
         optimizer.load_state_dict(state["optimizer"])
         scheduler.load_state_dict(state["scheduler"])
@@ -472,7 +537,7 @@ def main():
 
     bad_epochs = 0
     for epoch in range(start_epoch, max_epochs + 1):
-        stage = set_stage(encoder, epoch)
+        stage = set_stage(encoder, epoch, args.head_only_epochs, args.unfreeze_top_layers)
         started = time.perf_counter()
         try:
             train_loss, optimizer_steps = run_epoch(model, loaders["train"], optimizer, scheduler, scaler, criterion, device, torch, use_amp, accumulation, 1.0)
@@ -481,11 +546,11 @@ def main():
                 raise
             print("DataLoader workers failed; retrying this epoch with num_workers=0.")
             loaders = {
-                split: make_loader(frame, tokenizer, max_length, 2, torch, split == "train", workers=0)
+                split: make_loader(frame, tokenizer, max_length, args.batch_size, torch, split == "train", workers=0)
                 for split, frame in frames.items()
             }
             prediction_loaders = {
-                split: make_loader(frame, tokenizer, max_length, 2, torch, False, workers=0)
+                split: make_loader(frame, tokenizer, max_length, args.batch_size, torch, False, workers=0)
                 for split, frame in frames.items()
             }
             train_loss, optimizer_steps = run_epoch(model, loaders["train"], optimizer, scheduler, scaler, criterion, device, torch, use_amp, accumulation, 1.0)

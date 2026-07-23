@@ -56,7 +56,7 @@ disable_flash_attention = true
 [training]
 seed = 42
 batch_size = 2
-max_epochs = 2
+max_epochs = 4
 learning_rate = 0.00003
 
 [training.params]

@@ -10,7 +10,10 @@ predefined files as CNN-v2.
 - [iPro-MP five-fold inference and stacker](https://colab.research.google.com/github/simplyshree/SeqTrainer/blob/issue-3-all-model-baselines/notebooks/final_training/ipromp_final_training_t4_colab.ipynb)
 
 The notebooks are stored on branch issue-3-all-model-baselines. Open the
-matching link, select a T4 GPU, and run cells from the top.
+matching link, select a T4 GPU, and run cells from the top. The DNABERT2
+notebook deliberately follows the same environment, Drive discovery, and
+diagnostic sequence as the working T4 benchmark notebook, while calling the
+stronger final-training helper.
 
 ## Fixed scientific contract
 
@@ -81,7 +84,33 @@ unfreeze only the top four encoder layers, with learning rates 1e-4 for
 the head and 1e-5 for the encoder. The head uses attention-mask-aware mean
 and maximum pooling, LayerNorm, 256 hidden units, GELU, dropout 0.20, and one
 logit. Validation and test probabilities are converted to FP32 before
-metrics.
+metrics. The runner also applies the final partial gradient-accumulation
+group at each epoch, rather than silently dropping it.
+
+## DNABERT2 profile controls
+
+Cell 2 exposes the final profile explicitly. Keep the default profile for the
+first run. Each changed profile is a new validation candidate, not a
+continuation of an earlier run: use RESUME_MODE = "none" or a new Drive output
+directory. The runner checks checkpoint metadata and refuses to mix
+incompatible profiles.
+
+| Setting | Default | Purpose |
+| --- | ---: | --- |
+| MAX_EPOCHS | 6 | Maximum staged fine-tuning epochs; early stopping may end earlier. |
+| PATIENCE | 2 | Consecutive non-improving validation-MCC epochs allowed. |
+| HEAD_ONLY_EPOCHS | 1 | Stabilizes the new classifier before encoder layers are unfrozen. |
+| UNFREEZE_TOP_LAYERS | 4 | Limits adaptation to the encoder layers closest to the classifier. |
+| HEAD_LEARNING_RATE | 1e-4 | Faster learning for newly initialized classifier layers. |
+| ENCODER_LEARNING_RATE | 1e-5 | Conservative learning rate for pretrained DNABERT2 layers. |
+| DROPOUT | 0.20 | Regularization for the classifier head. |
+| PHYSICAL_BATCH_SIZE | 2 | T4-safe microbatch size. |
+| GRADIENT_ACCUMULATION | 16 | Gives effective batch size 32 without T4 out-of-memory failures. |
+| WARMUP_RATIO | 0.08 | Prevents abrupt early optimizer updates. |
+
+Changing epochs or learning rate can improve validation MCC, but does not
+guarantee a test gain. Choose a candidate solely by validation MCC, breaking
+ties with validation AUPRC; run the test set only for that selected candidate.
 
 The notebook creates a token-length audit for limits 70, 104, and 128. The
 optional RUN_MAX_LENGTH_128_CANDIDATE switch is disabled by default because

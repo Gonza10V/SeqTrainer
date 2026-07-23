@@ -154,12 +154,30 @@ def exact_mcc_threshold(labels: Any, probabilities: Any):
     labels = np.asarray(labels, dtype=int)
     probabilities = np.asarray(probabilities, dtype=np.float64)
     candidates = np.unique(np.concatenate(([0.0], probabilities, [1.0])))
+    auprc = float(average_precision_score(labels, probabilities))
+    total_positive = int(labels.sum())
+    total_negative = int(len(labels) - total_positive)
+    order = np.argsort(-probabilities, kind="stable")
+
+    tp = 0
+    fp = 0
+    next_index = 0
     best = None
-    selected = (0.5, 0.0, 0.0)
-    for threshold in candidates:
-        predictions = (probabilities >= threshold).astype(int)
-        mcc = float(matthews_corrcoef(labels, predictions))
-        auprc = float(average_precision_score(labels, probabilities))
+    selected = (0.5, 0.0, auprc)
+    for threshold in candidates[::-1]:
+        while next_index < len(order) and probabilities[order[next_index]] >= threshold:
+            if labels[order[next_index]] == 1:
+                tp += 1
+            else:
+                fp += 1
+            next_index += 1
+
+        fn = total_positive - tp
+        tn = total_negative - fp
+        denominator = (tp + fp) * (tp + fn) * (tn + fp) * (tn + fn)
+        mcc = 0.0 if denominator == 0 else float((tp * tn - fp * fn) / np.sqrt(float(denominator)))
+        # The historical policy resolves exact MCC/AUPRC ties toward the smaller
+        # threshold; keeping that policy makes old and new artifacts comparable.
         current = (mcc, auprc, -float(threshold))
         if best is None or current > best:
             best = current

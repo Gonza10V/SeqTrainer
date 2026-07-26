@@ -11,6 +11,12 @@ Canonical templates, intentionally unchanged:
 - notebooks/colab_benchmarks/dnabert2_finetune_t4_colab.ipynb
 - notebooks/colab_benchmarks/ipromp_t4_colab.ipynb
 
+Legacy final-training files are also retained for reproducibility:
+- notebooks/final_training/dnabert2_final_training_t4_colab.ipynb
+- notebooks/final_training/config/dnabert2_final_training_t4.toml
+
+Use dnabert1.ipynb for the current full-fine-tuning search. The legacy notebook and TOML are preserved so older runs can still be reopened exactly.
+
 ## Run
 
 Open a link, choose Runtime -> Change runtime type -> T4 GPU, then execute from the top. Both notebooks clone issue-3-all-model-baselines, install the working dependency chain, and stage data/model files on /content.
@@ -25,6 +31,8 @@ Keep RUN_MODE="quick" for the first run. smoke is only a setup check; final runs
 ## Scientific contract
 
 Both models use the exact shared train/validation/test files, sequence and label fields, seed 42, and binary labels 0/1. The notebooks reject invalid DNA and cross-split duplicate sequences. Thresholds are selected on validation only with MCC over the 0.05 to 0.95 grid in 0.01 increments; ties use validation AUPRC, validation balanced accuracy, then closeness to 0.5. Test metrics are read only after selection.
+
+The duplicate check is intentionally strict. If the audit reports overlaps, do not bypass it for a scientific run. The cell exposes DUPLICATE_POLICY="diagnostic_only" only for debugging the notebook flow; any output from that mode is explicitly non-reportable. Correct the shared split provenance or obtain mentor approval for a deterministic deduplication manifest before comparing models.
 
 DNABERT2 first reproduces the successful full-fine-tuning T4 baseline, then performs a small resumable search over learning rate, epochs, effective batch size, weight decay, warmup and dropout. It keeps the existing SeqTrainer model/tokenizer/runner path. It does not switch to frozen DNABERT, original DNABERT, LoRA, or an unsupported scheduler.
 

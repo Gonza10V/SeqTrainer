@@ -274,7 +274,7 @@ MCC improved progressively from the reference CNN to CNN-v2:
 | Test MCC | 0.187208 | 0.220884 | +0.033676 |
 | Test AUPRC | 0.618783 | 0.645976 | +0.027193 |
 
-This is a useful CNN-v2 improvement, but the scores are still modest for promoter prediction. The next benchmark step should test stronger sequence models on the same predefined split, especially DNABERT2 and iPro-MP.
+This is a useful CNN-v2 improvement, but the scores are still modest for promoter prediction. DNABERT2 and iPro-MP have now been evaluated on the same predefined split; the final DNABERT2 run reached test MCC `0.192182` and AUPRC `0.624236`, so CNN-v2 remains the current CNN baseline to beat.
 
 ## Scientific Decision Rule
 

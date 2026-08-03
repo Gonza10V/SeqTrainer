@@ -6,19 +6,29 @@ The pretrained model is used for inference only. SeqTrainer selects one
 probability threshold from the validation split by MCC and applies that fixed
 threshold to the held-out test split.
 
+The runnable notebooks are stored in `notebooks/colab_benchmarks/`:
+
+- `ipromp_t4_colab.ipynb`: resource-constrained T4 inference.
+- `ipromp_a100_colab.ipynb`: larger-runtime A100 inference.
+
+This folder contains the shared downloader and documentation rather than a
+separate notebook.
+
 ## Current Result Status
 
 | Model/run | Test MCC | Test AUPRC | Status |
 | --- | ---: | ---: | --- |
 | CNN-v2, 50 cycles | 0.220884 | 0.645976 | Current benchmark to beat |
 | DNABERT2 full fine-tuning, Colab T4 | 0.147631 | 0.365169 | Completed workflow check |
+| DNABERT2 final training, canonical split | 0.192182 | 0.624236 | Completed final-training Kaggle/T4 run |
 | iPro-MP E. coli model 10 / five-fold ensemble, Colab T4 | 0.068364 | 0.372180 | Completed pretrained inference check |
 
 Conclusion: **iPro-MP has a completed Colab T4 inference result, but it does not
-yet beat CNN-v2**. The run selected threshold `0.327886` on validation MCC and
-reported held-out test MCC `0.068364` and test AUPRC `0.372180`. Treat this as a
-resource-constrained pretrained-inference check. The final same-split claim
-should be rerun with the explicit `AIxBio/Promoter Classification/Data` path.
+beat CNN-v2 or the final DNABERT2 run**. The run selected threshold `0.327886`
+on validation MCC and reported held-out test MCC `0.068364` and test AUPRC
+`0.372180`. Treat this as a resource-constrained pretrained-inference check.
+The final same-split claim should be rerun with the explicit
+`AIxBio/Promoter Classification/Data` path.
 
 ## What Is Reproduced
 

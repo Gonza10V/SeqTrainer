@@ -1,8 +1,10 @@
-# DNABERT2 Benchmark
+# DNABERT2 Frozen Benchmark
 
-This folder records DNABERT2 promoter-classification work on the same benchmark
-surface used by CNN-v2: predefined GSE144621 splits, seed `42`, validation-only
-threshold selection, and held-out test reporting.
+This folder records the **DNABERT2 frozen-encoder benchmark** on the same
+benchmark surface used by CNN-v2: predefined GSE144621 splits, seed `42`,
+validation-only threshold selection, and held-out test reporting. The notebook
+in this folder trains only a small classifier head over cached DNABERT2
+embeddings; it does not fine-tune the 117M-parameter encoder.
 
 ![CNN, DNABERT2, and Colab T4 benchmark comparison](assets/cnn_dnabert2_comparison.svg)
 
@@ -14,14 +16,15 @@ threshold selection, and held-out test reporting.
 | CNN-v2, 50 cycles | **0.220884** | **0.645976** | Current best recorded model |
 | DNABERT2 frozen v1 | 0.124165 | 0.575073 | Reproducible frozen baseline |
 | DNABERT2 full fine-tuning, Colab T4 | 0.147631 | 0.365169 | Completed T4 workflow check |
+| DNABERT2 final training, canonical split | 0.192182 | 0.624236 | Completed final-training Kaggle/T4 run |
 | iPro-MP E. coli pretrained ensemble, Colab T4 | 0.068364 | 0.372180 | Completed pretrained inference check |
 
 Conclusion so far: **CNN-v2 remains the strongest completed run by held-out test MCC and AUPRC**.
-DNABERT2 T4 full fine-tuning and iPro-MP T4 pretrained inference both completed,
-but neither improved over CNN-v2. DNABERT2 T4 had high specificity and very low
-recall, while iPro-MP T4 produced the lowest MCC among recorded runs. Treat both
-T4 runs as resource-constrained workflow checks until the iPro-MP notebook is
-rerun with the explicit `AIxBio/Promoter Classification/Data` path.
+The final-training DNABERT2 run used the canonical shared split and improved over
+the CNN reference and frozen DNABERT2, but it remains below CNN-v2. The earlier
+DNABERT2 T4 result used a different split and is retained only as a historical
+workflow check. iPro-MP T4 produced the lowest MCC among recorded runs and should
+be rerun with the explicit `AIxBio/Promoter Classification/Data` path.
 
 Open [`assets/RESULTS.md`](assets/RESULTS.md) for the complete metric tables,
 training history, model settings, and interpretation.
@@ -48,10 +51,7 @@ comparison claim.
 
 ## T4 Resource Profile
 
-Both DNABERT2 full fine-tuning profiles keep the same scientific comparison
-contract: same predefined split names, seed `42`, DNABERT2 backbone, full encoder
-fine-tuning, mean pooling, AdamW, learning rate `3e-5`, validation-MCC threshold
-selection, and held-out test reporting.
+The earlier Colab T4 profile used the following resource settings:
 
 | Setting | Colab T4 profile |
 | --- | ---: |
@@ -64,8 +64,46 @@ selection, and held-out test reporting.
 | Gradient checkpointing | Enabled |
 | Purpose | Resource-constrained reproducibility run |
 
-Next step: verify the exact split files and compare held-out test MCC and AUPRC
-against CNN-v2 before deciding whether a longer run is worth promoting.
+The final-training profile is documented separately below because it used a
+longer run and a lower learning rate.
+
+## Final-Training DNABERT2 Profile
+
+The final-training notebook and TOML are:
+
+```text
+notebooks/final_training/dnabert2-finetune-kaggle.ipynb
+notebooks/final_training/config/dnabert2_final_training_t4.toml
+```
+
+The run used the canonical files with 136,484 train rows, 19,498 validation
+rows, and 38,996 test rows. Its settings were:
+
+| Setting | Final-training value |
+| --- | ---: |
+| Maximum epochs | 6 |
+| Best checkpoint | Validation MCC |
+| Early-stopping patience | 2 |
+| Physical batch size | 2 |
+| Gradient accumulation | 16 |
+| Effective batch size | 32 |
+| Learning rate | `1e-5` |
+| Weight decay | `0.01` |
+| Warmup ratio | `0.08` |
+| Dropout | `0.20` |
+| Precision | FP16 |
+| Pooling | Mean pooling |
+| Token limit | 104 |
+| Seed | 42 |
+
+The best validation MCC occurred at epoch 3, after which validation loss rose
+and validation MCC declined. The final test result was MCC `0.192182` and AUPRC
+`0.624236`. See [`assets/RESULTS.md`](assets/RESULTS.md) for the complete table.
+
+The archive records the actual runtime as Kaggle with Python 3.12, Torch 2.10.0,
+and Transformers 4.41.2, while the TOML describes the intended Colab T4
+environment. The split is correct, but the exact runtime and SeqTrainer commit
+should be pinned before making a bit-for-bit reproduction claim.
 
 ## What Stays Fixed
 
@@ -80,21 +118,25 @@ against CNN-v2 before deciding whether a longer run is worth promoting.
 
 ## Files
 
-- `dnabert2_shared_split_benchmark_colab.ipynb`: current Colab benchmark with
-  the same Conda-based execution pattern as the original working DNABERT2
+- `dnabert2_shared_split_benchmark_colab.ipynb`: DNABERT2 frozen-encoder Colab
+  benchmark with the same Conda-based execution pattern as the original working DNABERT2
   notebook, plus the shared CNN split, validation-only threshold selection,
   complete metric table, training curves, threshold analysis, confusion
   matrices, ROC/PR curves, and optional CNN-v2 comparison.
 - `assets/RESULTS.md`: complete recorded result tables and plain-language model,
   data, architecture, optimization, threshold, runtime, and limitation details.
+- `../../final_training/dnabert2-finetune-kaggle.ipynb`: final-training full
+  fine-tuning notebook used for the canonical-split result.
+- `../../final_training/config/dnabert2_final_training_t4.toml`: configuration for
+  the final-training profile.
 - `assets/cnn_dnabert2_comparison.svg`: readable summary of earlier CNN and
   frozen DNABERT2 scores.
 
-## Why V2 Exists
+## Why The Frozen Benchmark Exists
 
-The first frozen run used a full-dataset classifier update per epoch. That
+The first frozen implementation used a full-dataset classifier update per epoch. That
 produced only about 50 optimizer updates and underused the cached embeddings.
-V2 trains with mini-batches, early stopping, and validation-only candidate
+The current frozen benchmark trains with mini-batches, early stopping, and validation-only candidate
 selection.
 
 The bounded future ablations are:

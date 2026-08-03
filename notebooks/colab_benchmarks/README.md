@@ -47,6 +47,27 @@ This is a resource-constrained candidate, not a numerically identical replay of
 the A100 run. Use it to obtain a real full-dataset T4 result, then confirm a
 promising configuration with the longer full fine-tuning profile.
 
+## Final Training DNABERT2 Profile
+
+The final-training notebook and configuration are kept separately from the
+short hosted-runtime profiles:
+
+- [`../final_training/dnabert2-finetune-kaggle.ipynb`](../final_training/dnabert2-finetune-kaggle.ipynb)
+- [`../final_training/config/dnabert2_final_training_t4.toml`](../final_training/config/dnabert2_final_training_t4.toml)
+
+This run used the canonical shared split: 136,484 train rows, 19,498
+validation rows, and 38,996 test rows. It used full encoder fine-tuning, seed
+`42`, AdamW, learning rate `1e-5`, six maximum epochs, patience `2`, physical
+batch size `2`, gradient accumulation `16` (effective batch size `32`), mean
+pooling, token limit `104`, dropout `0.2`, FP16, and validation-MCC checkpoint
+selection.
+
+The recorded result was test MCC `0.192182` and test AUPRC `0.624236`. CNN-v2
+50 cycles remains higher at test MCC `0.220884` and test AUPRC `0.645976`.
+The archive was executed in Kaggle even though the TOML describes the intended
+Colab T4 environment, so the runtime versions and exact SeqTrainer commit
+must be pinned before claiming bit-for-bit reproduction.
+
 ## iPro-MP T4 Inference
 
 [`ipromp_t4_colab.ipynb`](ipromp_t4_colab.ipynb) evaluates the same official

@@ -107,10 +107,19 @@ def run_dnabert2_csv_splits(
         for split, value in encoded.items()
     }
 
-    pos = int(frames["train"][config.dataset.label_field].astype(int).sum())
-    neg = int(len(frames["train"]) - pos)
-    pos_weight = torch.tensor([neg / max(pos, 1)], dtype=torch.float32, device=device)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    pos_weight = None
+    if imbalance_policy.apply_to_training:
+        train_labels = encoded["train"].labels
+        pos = int(train_labels.sum().item())
+        neg = int(len(train_labels) - pos)
+        pos_weight = torch.tensor(
+            [neg / max(pos, 1)],
+            dtype=torch.float32,
+            device=device,
+        )
+        criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    else:
+        criterion = nn.BCEWithLogitsLoss()
     if freeze_encoder:
         return _run_frozen_embedding_classifier(
             config,
@@ -226,7 +235,7 @@ def run_dnabert2_csv_splits(
                     "split": split,
                     "idx": np.arange(len(frame)),
                     "sequence": frame[config.dataset.sequence_field].astype(str),
-                    "label": frame[config.dataset.label_field].astype(int),
+                    "label": encoded[split].labels.detach().cpu().numpy().astype(int),
                     "probability": pred["probability"],
                     "threshold": best_threshold,
                     "prediction": (pred["probability"] >= best_threshold).astype(int),
@@ -243,7 +252,7 @@ def run_dnabert2_csv_splits(
             "pooling": params.get("pooling", "mean"),
             "freeze_encoder": freeze_encoder,
             "checkpoint": str(checkpoint_path),
-            "pos_weight": float(pos_weight.item()),
+            "pos_weight": float(pos_weight.item()) if pos_weight is not None else None,
             "optimizer": "adamw",
             "warmup_ratio": float(train_params.get("warmup_ratio", 0.0)),
             "gradient_accumulation_steps": gradient_accumulation_steps,
@@ -405,7 +414,7 @@ def _run_frozen_embedding_classifier(
                     "split": split,
                     "idx": np.arange(len(frame)),
                     "sequence": frame[config.dataset.sequence_field].astype(str),
-                    "label": frame[config.dataset.label_field].astype(int),
+                    "label": encoded[split].labels.detach().cpu().numpy().astype(int),
                     "probability": pred["probability"],
                     "threshold": best_threshold,
                     "prediction": (pred["probability"] >= best_threshold).astype(int),
@@ -483,6 +492,25 @@ class _DnaBert2Classifier:
         return self._model(*args, **kwargs)
 
 
+def _normalize_binary_labels(config: BenchmarkConfig, frame: pd.DataFrame) -> Any:
+    """Map configured negative/positive labels to model targets 0/1."""
+    negative_label = config.label.negative_label
+    positive_label = config.label.positive_label
+    if negative_label == positive_label:
+        raise ValueError("Configured negative_label and positive_label must differ.")
+
+    raw_labels = frame[config.dataset.label_field]
+    known = raw_labels.isin([negative_label, positive_label])
+    if not bool(known.all()):
+        unexpected = raw_labels.loc[~known].drop_duplicates().tolist()
+        raise ValueError(
+            f"Labels {unexpected!r} do not match configured negative/positive labels "
+            f"{negative_label!r}/{positive_label!r}."
+        )
+
+    return raw_labels.map({negative_label: 0, positive_label: 1}).to_numpy(dtype=np.float32)
+
+
 def _encode_split(config: BenchmarkConfig, frame: pd.DataFrame, tokenizer: Any, torch: Any) -> _EncodedSplit:
     preprocessing = dict(config.preprocessing.params)
     pad_to_multiple_of = preprocessing.get("pad_to_multiple_of")
@@ -497,7 +525,10 @@ def _encode_split(config: BenchmarkConfig, frame: pd.DataFrame, tokenizer: Any, 
     attention_mask = encoded.get("attention_mask")
     if attention_mask is None:
         attention_mask = torch.ones_like(encoded["input_ids"])
-    labels = torch.tensor(frame[config.dataset.label_field].astype(int).to_numpy(), dtype=torch.float32)
+    labels = torch.tensor(
+        _normalize_binary_labels(config, frame),
+        dtype=torch.float32,
+    )
     return _EncodedSplit(encoded["input_ids"], attention_mask, labels)
 
 

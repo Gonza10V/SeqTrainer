@@ -83,7 +83,9 @@ def build_ipromp_mapping(config: BenchmarkConfig, frames: dict[str, pd.DataFrame
                     "sequence": sequence,
                 }
             )
-    return pd.DataFrame(rows)
+    mapping = pd.DataFrame(rows)
+    _validate_mapping(mapping)
+    return mapping
 
 
 def write_ipromp_fastas(
@@ -401,6 +403,15 @@ def _validate_mapping(mapping: pd.DataFrame) -> None:
     missing = required.difference(mapping.columns)
     if missing:
         raise ValueError(f"iPro-MP mapping CSV is missing columns: {sorted(missing)}")
+
+    for keys, description in (
+        (["split", "sequence_id"], "split/sequence_id"),
+        (["split", "row_index"], "split/row_index"),
+    ):
+        if mapping.duplicated(subset=keys).any():
+            raise ValueError(
+                f"iPro-MP mapping contains duplicate {description} keys."
+            )
 
 
 def _read_prediction_table(path: Path) -> pd.DataFrame:

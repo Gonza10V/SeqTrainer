@@ -324,6 +324,17 @@ def _normalize_seqtrainer_predictions(
     if merged["label"].isna().any() or merged["sequence"].isna().any():
         raise ValueError("Could not map every normalized iPro-MP prediction row back to the benchmark split.")
     if "label_pred" in merged.columns:
+        expected_labels = pd.to_numeric(merged["label"], errors="coerce")
+        supplied_labels = pd.to_numeric(merged["label_pred"], errors="coerce")
+        if (
+            expected_labels.isna().any()
+            or supplied_labels.isna().any()
+            or not expected_labels.equals(supplied_labels)
+        ):
+            raise ValueError(
+                "Normalized iPro-MP labels do not match the mapped benchmark rows. "
+                "Use sequence_id to preserve row identity."
+            )
         merged = merged.drop(columns=["label_pred"])
     return _standard_prediction_columns(merged)
 

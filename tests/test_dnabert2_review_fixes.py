@@ -129,6 +129,33 @@ def test_ipromp_rejects_cached_mapping_from_different_splits(tmp_path):
         )
 
 
+def test_ipromp_rejects_reordered_idless_labels(tmp_path):
+    config = load_benchmark_config(CONFIG_PATH)
+    frames = {
+        split: pd.DataFrame(
+            {"sequence": ["ACGT", "TGCA"], "label": [0, 1]}
+        )
+        for split in ("train", "validation", "test")
+    }
+    mapping = build_ipromp_mapping(config, frames)
+    mapping_path = tmp_path / "mapping.csv"
+    mapping.to_csv(mapping_path, index=False)
+    predictions = mapping[["split", "label"]].copy()
+    validation_rows = predictions["split"] == "validation"
+    predictions.loc[validation_rows, "label"] = predictions.loc[validation_rows, "label"].iloc[::-1].to_numpy()
+    predictions["probability"] = 0.5
+    predictions_path = tmp_path / "predictions.csv"
+    predictions.to_csv(predictions_path, index=False)
+
+    with pytest.raises(ValueError, match="labels do not match"):
+        normalize_ipromp_predictions(
+            config,
+            mapping_csv=mapping_path,
+            predictions_csv=predictions_path,
+            frames=frames,
+        )
+
+
 def test_dnabert2_scales_final_partial_accumulation_window():
     torch = pytest.importorskip("torch")
     from torch.utils.data import DataLoader, TensorDataset

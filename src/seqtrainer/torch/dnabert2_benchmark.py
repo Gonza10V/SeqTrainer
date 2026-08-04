@@ -303,6 +303,8 @@ def _run_frozen_embedding_classifier(
     run_started: float,
     output_dir: str | Path | None,
 ) -> BenchmarkRunResult:
+    from torch.utils.data import DataLoader, TensorDataset
+
     params = dict(config.model.params)
     train_params = dict(config.training.params)
     pooling = str(params.get("pooling", "mean"))
@@ -343,31 +345,44 @@ def _run_frozen_embedding_classifier(
         nn.Dropout(float(params.get("classifier_dropout", 0.1))),
         nn.Linear(hidden_size, 1),
     ).to(device)
+    train_loader = DataLoader(
+        TensorDataset(embeddings["train"], labels["train"]),
+        batch_size=config.training.batch_size or 16,
+        shuffle=True,
+    )
     optimizer = torch.optim.AdamW(
         classifier.parameters(),
         lr=config.training.learning_rate or 1e-3,
         weight_decay=float(train_params.get("weight_decay", 0.01)),
     )
     max_epochs = 20 if config.training.max_epochs is None else int(config.training.max_epochs)
-    total_steps = max(1, max_epochs)
+    total_steps = max(1, max_epochs * len(train_loader))
     warmup_steps = int(total_steps * float(train_params.get("warmup_ratio", 0.0)))
     scheduler = _linear_warmup_scheduler(optimizer, warmup_steps, total_steps)
     patience = int(train_params.get("early_stopping_patience", 4))
     best_state = {key: value.detach().cpu().clone() for key, value in classifier.state_dict().items()}
     best_mcc = float("-inf")
+    best_auprc = float("-inf")
     best_threshold = 0.5
     bad_epochs = 0
     history: list[dict[str, float]] = []
 
     for epoch in range(1, max_epochs + 1):
         classifier.train()
-        optimizer.zero_grad(set_to_none=True)
-        train_logits = classifier(embeddings["train"].to(device)).squeeze(-1)
-        train_labels = labels["train"].to(device)
-        train_loss = criterion(train_logits, train_labels)
-        train_loss.backward()
-        optimizer.step()
-        scheduler.step()
+        train_loss_total = 0.0
+        train_examples = 0
+        for train_embeddings, train_labels in train_loader:
+            optimizer.zero_grad(set_to_none=True)
+            train_logits = classifier(train_embeddings.to(device)).squeeze(-1)
+            train_labels = train_labels.to(device)
+            train_loss = criterion(train_logits, train_labels)
+            train_loss.backward()
+            optimizer.step()
+            scheduler.step()
+            batch_size = int(train_labels.shape[0])
+            train_loss_total += float(train_loss.item()) * batch_size
+            train_examples += batch_size
+        train_loss_value = train_loss_total / max(train_examples, 1)
 
         validation = _predict_from_embeddings(classifier, embeddings["validation"], labels["validation"], criterion, device, torch)
         threshold, validation_mcc = best_threshold_by_metric(
@@ -375,18 +390,30 @@ def _run_frozen_embedding_classifier(
             validation["probability"],
             metric="mcc",
         )
+        validation_metrics = binary_classification_metrics(
+            validation["label"],
+            validation["probability"],
+            threshold,
+        )
+        validation_auprc = validation_metrics["auprc"]
+        validation_auprc_score = float(validation_auprc) if validation_auprc is not None else float("-inf")
         history.append(
             {
                 "epoch": float(epoch),
-                "train_loss": float(train_loss.item()),
+                "train_loss": train_loss_value,
                 "validation_loss": float(validation["loss"]),
                 "validation_mcc": float(validation_mcc),
+                "validation_auprc": validation_auprc_score,
                 "validation_threshold": float(threshold),
                 "learning_rate": float(optimizer.param_groups[0]["lr"]),
             }
         )
-        if validation_mcc > best_mcc:
+        if (
+            validation_mcc > best_mcc
+            or (validation_mcc == best_mcc and validation_auprc_score > best_auprc)
+        ):
             best_mcc = float(validation_mcc)
+            best_auprc = validation_auprc_score
             best_threshold = float(threshold)
             best_state = {key: value.detach().cpu().clone() for key, value in classifier.state_dict().items()}
             bad_epochs = 0
@@ -437,6 +464,7 @@ def _run_frozen_embedding_classifier(
             "optimizer": "adamw",
             "warmup_ratio": float(train_params.get("warmup_ratio", 0.0)),
             "early_stopping_metric": "validation_mcc",
+            "early_stopping_tie_breaker": "validation_auprc",
             "resolved_device": str(device),
             "runtime_seconds": float(time.perf_counter() - run_started),
             "peak_memory_mb": _peak_memory_mb(torch, device),

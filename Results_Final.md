@@ -44,7 +44,8 @@ run are retained for transparency but are not both canonical same-split claims.
 | DNABERT2 frozen v1 | 0.557262 | 0.556231 | 0.595158 | 0.344586 | **0.436466** | 0.124165 | 0.767876 | 0.573813 | 0.575073 | Frozen baseline |
 | DNABERT2 final training | 0.570751 | 0.569059 | 0.724242 | 0.221718 | 0.339502 | 0.192182 | 0.916399 | 0.600569 | 0.624236 | Canonical shared split |
 | DNABERT2 earlier T4 full fine-tuning | 0.683493 | 0.529984 | 0.679803 | 0.078098 | 0.140102 | 0.147631 | 0.981870 | 0.531969 | 0.365169 | Historical, different split |
-| iPro-MP E. coli five-fold ensemble | 0.628842 | 0.528845 | 0.395293 | 0.234484 | 0.294358 | 0.068364 | 0.823207 | 0.541454 | 0.372180 | Inference baseline; rerun audit needed |
+| iPro-MP E. coli five-fold ensemble, shared-split rerun | 0.529721 | 0.528003 | 0.592650 | 0.175385 | 0.270671 | 0.079025 | 0.880621 | 0.545476 | 0.547796 | Latest canonical inference result; threshold 0.471795 |
+| iPro-MP E. coli five-fold ensemble, earlier run | 0.628842 | 0.528845 | 0.395293 | 0.234484 | 0.294358 | 0.068364 | 0.823207 | 0.541454 | 0.372180 | Historical; different split/audit state |
 
 ### Current decision
 
@@ -55,6 +56,26 @@ CNN-v2 with 50 cycles is the current baseline to beat:
 
 The final DNABERT2 run improved over the CNN reference and frozen DNABERT2,
 but remains below CNN-v2 by `0.028702` MCC and `0.021740` AUPRC.
+
+The latest canonical iPro-MP rerun is below CNN-v2 by `0.141859` MCC and
+`0.098180` AUPRC. Its validation-selected threshold was `0.471795`; that same
+threshold was used for the test row. The iPro-MP result is therefore directly
+comparable under the shared split and validation-only threshold policy, but it
+does not become the primary baseline.
+
+### Latest iPro-MP shared-split result
+
+| Split | Threshold | Accuracy | Balanced accuracy | Precision | Recall / sensitivity | F1 | MCC | Specificity | TN | FP | FN | TP | AUROC | AUPRC |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Validation | 0.471795 | 0.531644 | 0.531316 | 0.608339 | 0.175257 | 0.272119 | 0.089218 | 0.887374 | 8,659 | 1,099 | 8,033 | 1,707 | 0.549863 | 0.550500 |
+| Test | 0.471795 | 0.529721 | 0.528003 | 0.592650 | 0.175385 | 0.270671 | 0.079025 | 0.880621 | 17,254 | 2,339 | 16,000 | 3,403 | 0.545476 | 0.547796 |
+
+This iPro-MP run is inference-only: the five official E. coli fold models were
+loaded, their positive-class probabilities were averaged, and SeqTrainer chose
+the final threshold on validation MCC. There are no SeqTrainer epochs or
+learning-rate updates for this baseline. The low test MCC and AUROC indicate
+weak separation on this promoter dataset, despite relatively high precision and
+specificity at the selected threshold.
 
 ## What Changed In Each Model
 

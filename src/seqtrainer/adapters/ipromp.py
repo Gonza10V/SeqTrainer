@@ -208,6 +208,7 @@ def normalize_ipromp_predictions(
     train_predictions_csv: str | Path | None = None,
     predictions_csv: str | Path | None = None,
     base_dir: str | Path | None = None,
+    frames: dict[str, pd.DataFrame] | None = None,
 ) -> pd.DataFrame:
     """Normalize official iPro-MP or SeqTrainer prediction files."""
     mapping_path = _resolve_input_path(mapping_csv, base_dir)
@@ -215,6 +216,8 @@ def normalize_ipromp_predictions(
         raise FileNotFoundError(f"Missing iPro-MP mapping CSV: {mapping_path}")
     mapping = pd.read_csv(mapping_path)
     _validate_mapping(mapping)
+    current_frames = frames or load_predefined_split_frames(config, base_dir=base_dir)
+    _validate_mapping_matches_frames(config, mapping, current_frames)
 
     if predictions_csv is not None:
         combined = _read_prediction_table(_resolve_input_path(predictions_csv, base_dir))
@@ -412,6 +415,25 @@ def _validate_mapping(mapping: pd.DataFrame) -> None:
             raise ValueError(
                 f"iPro-MP mapping contains duplicate {description} keys."
             )
+
+
+def _validate_mapping_matches_frames(
+    config: BenchmarkConfig,
+    mapping: pd.DataFrame,
+    frames: dict[str, pd.DataFrame],
+) -> None:
+    """Reject mappings generated from a different configured split set."""
+    expected = build_ipromp_mapping(config, frames)
+    columns = ["split", "row_index", "sequence_id", "label", "sequence"]
+    actual_rows = mapping[columns].copy()
+    expected_rows = expected[columns].copy()
+    actual_rows = actual_rows.sort_values(["split", "row_index"]).reset_index(drop=True)
+    expected_rows = expected_rows.sort_values(["split", "row_index"]).reset_index(drop=True)
+    if not actual_rows.equals(expected_rows):
+        raise ValueError(
+            "Cached iPro-MP mapping does not match the currently loaded benchmark "
+            "splits. Re-run `seqtrainer benchmark prepare-ipromp` to rebuild it."
+        )
 
 
 def _read_prediction_table(path: Path) -> pd.DataFrame:

@@ -907,10 +907,12 @@ def _run_epoch(
         input_ids = _tensor_to_device(input_ids, device)
         attention_mask = _tensor_to_device(attention_mask, device)
         labels = _tensor_to_device(labels, device)
+        window_start = ((batch_index - 1) // accumulation) * accumulation + 1
+        window_size = min(accumulation, len(loader) - window_start + 1)
         with _autocast_context(torch, device, precision):
             logits = model(input_ids, attention_mask)
             raw_loss = criterion(logits, labels)
-            loss = raw_loss / accumulation
+            loss = raw_loss / window_size
         if scaler is None:
             loss.backward()
         else:

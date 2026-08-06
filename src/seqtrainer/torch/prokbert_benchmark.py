@@ -205,8 +205,12 @@ def audit_prokbert_tokenizer(
         truncated_rows = sum(length > model_max_length for length in token_lengths)
     if any(length > model_max_length for length in token_lengths):
         raise ValueError("ProkBERT tokenization exceeded model_max_length despite truncation=True")
+    encoder_device = _module_device(encoder)
+    encoded_for_encoder = {
+        key: value.to(encoder_device) for key, value in encoded.items()
+    }
     with torch.no_grad():
-        outputs = encoder(**encoded)
+        outputs = encoder(**encoded_for_encoder)
     hidden = _last_hidden_state(outputs)
     if hidden.ndim != 3 or hidden.shape[0] != len(sample):
         raise ValueError(f"Unexpected ProkBERT encoder output dimensions: {tuple(hidden.shape)}")
@@ -798,6 +802,14 @@ def _encoder_hidden_size(encoder: Any) -> int:
         if value:
             return int(value)
     raise ValueError("Could not infer ProkBERT encoder hidden size from encoder.config")
+
+
+def _module_device(module: Any) -> torch.device:
+    """Return a module's parameter device, defaulting to CPU for parameterless fakes."""
+    try:
+        return next(module.parameters()).device
+    except (AttributeError, StopIteration):
+        return torch.device("cpu")
 
 
 def _validate_binary_labels(frame: pd.DataFrame, config: BenchmarkConfig) -> None:

@@ -90,3 +90,50 @@ CSVs and labels, seed `42`, no test-set tuning, validation-selected threshold,
 and held-out test MCC/AUPRC. Resource settings such as precision, physical batch
 size, checkpointing, and epoch budget must be reported alongside the metrics.
 
+## ProkBERT-mini T4 Profile
+
+[![Open ProkBERT-mini T4 notebook in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/simplyshree/SeqTrainer/blob/issue-3-all-model-baselines/notebooks/colab_benchmarks/prokbert_mini_t4_colab.ipynb)
+
+[`prokbert_mini_t4_colab.ipynb`](prokbert_mini_t4_colab.ipynb) adds the generic
+`neuralbioinfo/prokbert-mini` microbial-DNA masked-language-model backbone to
+the shared SeqTrainer promoter benchmark. ProkBERT is biologically relevant
+because it was pretrained on broad microbial genomic sequence rather than on a
+single promoter-classification task. The notebook deliberately does not use
+`neuralbioinfo/prokbert-mini-promoter`; that promoter checkpoint could leak
+task-related information. External ProkBERT promoter scores are therefore not
+SeqTrainer benchmark results and are not directly comparable.
+
+Place these unchanged files under `MyDrive/SeqTrainer/data/promoter_classification/`:
+
+- `train_EP_DNA_BERT2_genomic_order.csv`
+- `eval_EP_DNA_BERT2_genomic_order.csv`
+- `test_EP_DNA_BERT2_genomic_order.csv`
+
+Each CSV must contain `sequence` and `label`, with 300 bp sequences and binary
+labels `1` and `0`. The notebook writes its fast local run to
+`/content/seqtrainer_prokbert_run/`, then copies the complete artifact set to
+`MyDrive/SeqTrainer/outputs/benchmarks/prokbert_mini_t4_full/` (or to the
+separate `outputs/smoke_tests/prokbert_mini_t4_smoke_test/` directory in smoke
+mode).
+
+The T4 profile requests physical batch size `16`, gradient accumulation `2`
+(effective batch size `32`), FP16, AdamW, learning rate `2e-5`, weight decay
+`0.01`, warmup ratio `0.10`, three maximum epochs, gradient clipping `1.0`, and
+validation-MCC checkpoint selection with patience `1`. If a genuine CUDA OOM is
+observed in preflight, it explicitly falls back to physical batch size `8` and
+accumulation `4`, preserving the effective batch size. The manifest records the
+requested and effective settings and all pinned revisions.
+
+Set `RUN_MODE = "smoke"` to sample each class in each split and run at most one
+epoch. Smoke results are installation/tokenization/artifact diagnostics only;
+they must never be entered into `Results_Final.md`. Set `RUN_MODE = "full"` to
+use every row in the three predefined files. Resuming is enabled by default:
+the notebook checks the config hash, split hashes, model revision, and
+SeqTrainer commit before restoring model, optimizer, scheduler, scaler, history,
+and RNG state.
+
+The Hugging Face model is licensed `CC-BY-NC-4.0`; review that non-commercial
+license before using the benchmark or resulting checkpoint in a commercial
+setting. Only a completed full-data run on the canonical shared splits may be
+reported in the final benchmark table.
+

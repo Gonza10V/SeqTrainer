@@ -1,10 +1,11 @@
 # CNN, DNABERT2, and iPro-MP Benchmark Results
 
-This document records the completed CNN, frozen DNABERT2-v1, DNABERT2 Colab
-T4 fine-tuning, and iPro-MP Colab T4 pretrained-inference promoter
-classification experiments. The T4 transformer runs are resource-constrained
-workflow checks; the canonical larger-resource profiles still need to be run for
-final claim-bearing scores.
+This document records the completed CNN, frozen DNABERT2-v1, DNABERT2 final
+T4/Kaggle fine-tuning, earlier DNABERT2 T4 fine-tuning, and iPro-MP Colab T4
+pretrained-inference promoter classification experiments. The final DNABERT2
+run uses the canonical shared split; its runtime metadata should still be
+normalized before claiming bit-for-bit reproduction because the archived run
+was executed in a Kaggle environment.
 
 ## What Was Kept Identical
 
@@ -366,5 +367,74 @@ positive promoters. This is why accuracy looks reasonable while MCC and AUPRC
 remain below CNN-v2. The next claim-bearing comparison should run a longer
 full fine-tuning profile, verify the exact split files, and compare
 held-out test MCC and AUPRC against CNN-v2.
+
+## DNABERT2 Final Training, T4/Kaggle Run
+
+This is the final-training DNABERT2 run from:
+
+```text
+notebooks/final_training/dnabert2-finetune-kaggle.ipynb
+notebooks/final_training/config/dnabert2_final_training_t4.toml
+```
+
+Unlike the earlier T4 result above, this run used the canonical Issue 3 split
+files. The input audit recorded the expected row counts and hashes, so this is
+the first DNABERT2 full-fine-tuning result that can be compared directly with
+the CNN reference and CNN-v2 tables.
+
+| Split | Threshold | Accuracy | Balanced accuracy | Precision | Recall / sensitivity | F1 | MCC | Specificity | TN | FP | FN | TP | AUROC | AUPRC | Loss |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Train | 0.677002 | 0.604020 | 0.604547 | 0.839901 | 0.258523 | 0.395355 | 0.289540 | 0.950570 | 64,770 | 3,368 | 50,677 | 17,669 | 0.655825 | 0.693568 | 0.637737 |
+| Validation | 0.677002 | 0.565135 | 0.564809 | 0.720224 | 0.211704 | 0.327224 | 0.183106 | 0.917914 | 8,957 | 801 | 7,678 | 2,062 | 0.599248 | 0.620076 | 0.674278 |
+| Test | 0.677002 | 0.570751 | 0.569059 | 0.724242 | 0.221718 | 0.339502 | **0.192182** | 0.916399 | 17,955 | 1,638 | 15,101 | 4,302 | 0.600569 | **0.624236** | 0.672260 |
+
+### Final-training specifications
+
+| Setting | Value |
+| --- | --- |
+| Model | `zhihan1996/DNABERT-2-117M` |
+| Mode | Full encoder fine-tuning |
+| Seed | 42 |
+| Maximum epochs | 6 |
+| Early stopping | Patience 2, monitored validation MCC |
+| Best checkpoint | Best validation MCC; peak validation MCC occurred at epoch 3 |
+| Physical batch size | 2 |
+| Gradient accumulation | 16, effective batch size 32 |
+| Optimizer | AdamW |
+| Learning rate | 0.00001 |
+| Weight decay | 0.01 |
+| Warmup | 8% of optimizer steps |
+| Pooling | Attention-mask-aware mean pooling |
+| Dropout | 0.20 |
+| Token limit | 104; input biological sequence length 300 |
+| Precision | FP16 |
+| Class weighting | Disabled; training imbalance ratio 1.003 |
+| Threshold | 0.677002, selected from validation MCC only |
+| Runtime | 17,570 seconds, approximately 4.88 hours |
+| Peak GPU memory | 2,253 MB |
+
+The validation loss and MCC improved through epoch 3, then validation loss rose
+and validation MCC declined. Early stopping therefore retained the epoch-3
+checkpoint rather than assuming that more epochs would improve the model.
+
+### Comparison with previous models
+
+| Model | Test MCC | Test AUPRC |
+| --- | ---: | ---: |
+| CNN reference | 0.187208 | 0.618783 |
+| DNABERT2 frozen v1 | 0.124165 | 0.575073 |
+| DNABERT2 final training, canonical split | **0.192182** | **0.624236** |
+| CNN-v2, 50 cycles | **0.220884** | **0.645976** |
+| CNN-v2, 100 cycles | 0.208165 | 0.634116 |
+
+The final DNABERT2 run improves over the CNN reference by 0.004974 MCC and
+0.005453 AUPRC, and improves substantially over frozen DNABERT2-v1. CNN-v2
+still remains the best model on the primary comparison metrics, exceeding this
+DNABERT2 run by 0.028702 MCC and 0.021740 AUPRC.
+
+The archive records the actual runtime as Kaggle/Python 3.12/Torch 2.10.0 and
+Transformers 4.41.2, while the TOML describes a Colab T4/Python 3.10/Torch
+2.2.2 environment. The data split is correct, but the environment and exact
+SeqTrainer commit must be pinned in a future rerun for complete reproduction.
 
 

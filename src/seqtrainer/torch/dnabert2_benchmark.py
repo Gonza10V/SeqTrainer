@@ -107,10 +107,19 @@ def run_dnabert2_csv_splits(
         for split, value in encoded.items()
     }
 
-    pos = int(frames["train"][config.dataset.label_field].astype(int).sum())
-    neg = int(len(frames["train"]) - pos)
-    pos_weight = torch.tensor([neg / max(pos, 1)], dtype=torch.float32, device=device)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    pos_weight = None
+    if imbalance_policy.apply_to_training:
+        train_labels = encoded["train"].labels
+        pos = int(train_labels.sum().item())
+        neg = int(len(train_labels) - pos)
+        pos_weight = torch.tensor(
+            [neg / max(pos, 1)],
+            dtype=torch.float32,
+            device=device,
+        )
+        criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    else:
+        criterion = nn.BCEWithLogitsLoss()
     if freeze_encoder:
         return _run_frozen_embedding_classifier(
             config,
@@ -226,7 +235,7 @@ def run_dnabert2_csv_splits(
                     "split": split,
                     "idx": np.arange(len(frame)),
                     "sequence": frame[config.dataset.sequence_field].astype(str),
-                    "label": frame[config.dataset.label_field].astype(int),
+                    "label": encoded[split].labels.detach().cpu().numpy().astype(int),
                     "probability": pred["probability"],
                     "threshold": best_threshold,
                     "prediction": (pred["probability"] >= best_threshold).astype(int),
@@ -243,7 +252,7 @@ def run_dnabert2_csv_splits(
             "pooling": params.get("pooling", "mean"),
             "freeze_encoder": freeze_encoder,
             "checkpoint": str(checkpoint_path),
-            "pos_weight": float(pos_weight.item()),
+            "pos_weight": float(pos_weight.item()) if pos_weight is not None else None,
             "optimizer": "adamw",
             "warmup_ratio": float(train_params.get("warmup_ratio", 0.0)),
             "gradient_accumulation_steps": gradient_accumulation_steps,
@@ -294,6 +303,8 @@ def _run_frozen_embedding_classifier(
     run_started: float,
     output_dir: str | Path | None,
 ) -> BenchmarkRunResult:
+    from torch.utils.data import DataLoader, TensorDataset
+
     params = dict(config.model.params)
     train_params = dict(config.training.params)
     pooling = str(params.get("pooling", "mean"))
@@ -334,31 +345,44 @@ def _run_frozen_embedding_classifier(
         nn.Dropout(float(params.get("classifier_dropout", 0.1))),
         nn.Linear(hidden_size, 1),
     ).to(device)
+    train_loader = DataLoader(
+        TensorDataset(embeddings["train"], labels["train"]),
+        batch_size=config.training.batch_size or 16,
+        shuffle=True,
+    )
     optimizer = torch.optim.AdamW(
         classifier.parameters(),
         lr=config.training.learning_rate or 1e-3,
         weight_decay=float(train_params.get("weight_decay", 0.01)),
     )
     max_epochs = 20 if config.training.max_epochs is None else int(config.training.max_epochs)
-    total_steps = max(1, max_epochs)
+    total_steps = max(1, max_epochs * len(train_loader))
     warmup_steps = int(total_steps * float(train_params.get("warmup_ratio", 0.0)))
     scheduler = _linear_warmup_scheduler(optimizer, warmup_steps, total_steps)
     patience = int(train_params.get("early_stopping_patience", 4))
     best_state = {key: value.detach().cpu().clone() for key, value in classifier.state_dict().items()}
     best_mcc = float("-inf")
+    best_auprc = float("-inf")
     best_threshold = 0.5
     bad_epochs = 0
     history: list[dict[str, float]] = []
 
     for epoch in range(1, max_epochs + 1):
         classifier.train()
-        optimizer.zero_grad(set_to_none=True)
-        train_logits = classifier(embeddings["train"].to(device)).squeeze(-1)
-        train_labels = labels["train"].to(device)
-        train_loss = criterion(train_logits, train_labels)
-        train_loss.backward()
-        optimizer.step()
-        scheduler.step()
+        train_loss_total = 0.0
+        train_examples = 0
+        for train_embeddings, train_labels in train_loader:
+            optimizer.zero_grad(set_to_none=True)
+            train_logits = classifier(train_embeddings.to(device)).squeeze(-1)
+            train_labels = train_labels.to(device)
+            train_loss = criterion(train_logits, train_labels)
+            train_loss.backward()
+            optimizer.step()
+            scheduler.step()
+            batch_size = int(train_labels.shape[0])
+            train_loss_total += float(train_loss.item()) * batch_size
+            train_examples += batch_size
+        train_loss_value = train_loss_total / max(train_examples, 1)
 
         validation = _predict_from_embeddings(classifier, embeddings["validation"], labels["validation"], criterion, device, torch)
         threshold, validation_mcc = best_threshold_by_metric(
@@ -366,18 +390,30 @@ def _run_frozen_embedding_classifier(
             validation["probability"],
             metric="mcc",
         )
+        validation_metrics = binary_classification_metrics(
+            validation["label"],
+            validation["probability"],
+            threshold,
+        )
+        validation_auprc = validation_metrics["auprc"]
+        validation_auprc_score = float(validation_auprc) if validation_auprc is not None else float("-inf")
         history.append(
             {
                 "epoch": float(epoch),
-                "train_loss": float(train_loss.item()),
+                "train_loss": train_loss_value,
                 "validation_loss": float(validation["loss"]),
                 "validation_mcc": float(validation_mcc),
+                "validation_auprc": validation_auprc_score,
                 "validation_threshold": float(threshold),
                 "learning_rate": float(optimizer.param_groups[0]["lr"]),
             }
         )
-        if validation_mcc > best_mcc:
+        if (
+            validation_mcc > best_mcc
+            or (validation_mcc == best_mcc and validation_auprc_score > best_auprc)
+        ):
             best_mcc = float(validation_mcc)
+            best_auprc = validation_auprc_score
             best_threshold = float(threshold)
             best_state = {key: value.detach().cpu().clone() for key, value in classifier.state_dict().items()}
             bad_epochs = 0
@@ -405,7 +441,7 @@ def _run_frozen_embedding_classifier(
                     "split": split,
                     "idx": np.arange(len(frame)),
                     "sequence": frame[config.dataset.sequence_field].astype(str),
-                    "label": frame[config.dataset.label_field].astype(int),
+                    "label": encoded[split].labels.detach().cpu().numpy().astype(int),
                     "probability": pred["probability"],
                     "threshold": best_threshold,
                     "prediction": (pred["probability"] >= best_threshold).astype(int),
@@ -428,6 +464,7 @@ def _run_frozen_embedding_classifier(
             "optimizer": "adamw",
             "warmup_ratio": float(train_params.get("warmup_ratio", 0.0)),
             "early_stopping_metric": "validation_mcc",
+            "early_stopping_tie_breaker": "validation_auprc",
             "resolved_device": str(device),
             "runtime_seconds": float(time.perf_counter() - run_started),
             "peak_memory_mb": _peak_memory_mb(torch, device),
@@ -483,6 +520,25 @@ class _DnaBert2Classifier:
         return self._model(*args, **kwargs)
 
 
+def _normalize_binary_labels(config: BenchmarkConfig, frame: pd.DataFrame) -> Any:
+    """Map configured negative/positive labels to model targets 0/1."""
+    negative_label = config.label.negative_label
+    positive_label = config.label.positive_label
+    if negative_label == positive_label:
+        raise ValueError("Configured negative_label and positive_label must differ.")
+
+    raw_labels = frame[config.dataset.label_field]
+    known = raw_labels.isin([negative_label, positive_label])
+    if not bool(known.all()):
+        unexpected = raw_labels.loc[~known].drop_duplicates().tolist()
+        raise ValueError(
+            f"Labels {unexpected!r} do not match configured negative/positive labels "
+            f"{negative_label!r}/{positive_label!r}."
+        )
+
+    return raw_labels.map({negative_label: 0, positive_label: 1}).to_numpy(dtype=np.float32)
+
+
 def _encode_split(config: BenchmarkConfig, frame: pd.DataFrame, tokenizer: Any, torch: Any) -> _EncodedSplit:
     preprocessing = dict(config.preprocessing.params)
     pad_to_multiple_of = preprocessing.get("pad_to_multiple_of")
@@ -497,7 +553,10 @@ def _encode_split(config: BenchmarkConfig, frame: pd.DataFrame, tokenizer: Any, 
     attention_mask = encoded.get("attention_mask")
     if attention_mask is None:
         attention_mask = torch.ones_like(encoded["input_ids"])
-    labels = torch.tensor(frame[config.dataset.label_field].astype(int).to_numpy(), dtype=torch.float32)
+    labels = torch.tensor(
+        _normalize_binary_labels(config, frame),
+        dtype=torch.float32,
+    )
     return _EncodedSplit(encoded["input_ids"], attention_mask, labels)
 
 
@@ -876,10 +935,12 @@ def _run_epoch(
         input_ids = _tensor_to_device(input_ids, device)
         attention_mask = _tensor_to_device(attention_mask, device)
         labels = _tensor_to_device(labels, device)
+        window_start = ((batch_index - 1) // accumulation) * accumulation + 1
+        window_size = min(accumulation, len(loader) - window_start + 1)
         with _autocast_context(torch, device, precision):
             logits = model(input_ids, attention_mask)
             raw_loss = criterion(logits, labels)
-            loss = raw_loss / accumulation
+            loss = raw_loss / window_size
         if scaler is None:
             loss.backward()
         else:

@@ -83,7 +83,9 @@ def build_ipromp_mapping(config: BenchmarkConfig, frames: dict[str, pd.DataFrame
                     "sequence": sequence,
                 }
             )
-    return pd.DataFrame(rows)
+    mapping = pd.DataFrame(rows)
+    _validate_mapping(mapping)
+    return mapping
 
 
 def write_ipromp_fastas(
@@ -206,6 +208,7 @@ def normalize_ipromp_predictions(
     train_predictions_csv: str | Path | None = None,
     predictions_csv: str | Path | None = None,
     base_dir: str | Path | None = None,
+    frames: dict[str, pd.DataFrame] | None = None,
 ) -> pd.DataFrame:
     """Normalize official iPro-MP or SeqTrainer prediction files."""
     mapping_path = _resolve_input_path(mapping_csv, base_dir)
@@ -213,6 +216,8 @@ def normalize_ipromp_predictions(
         raise FileNotFoundError(f"Missing iPro-MP mapping CSV: {mapping_path}")
     mapping = pd.read_csv(mapping_path)
     _validate_mapping(mapping)
+    current_frames = frames or load_predefined_split_frames(config, base_dir=base_dir)
+    _validate_mapping_matches_frames(config, mapping, current_frames)
 
     if predictions_csv is not None:
         combined = _read_prediction_table(_resolve_input_path(predictions_csv, base_dir))
@@ -319,6 +324,17 @@ def _normalize_seqtrainer_predictions(
     if merged["label"].isna().any() or merged["sequence"].isna().any():
         raise ValueError("Could not map every normalized iPro-MP prediction row back to the benchmark split.")
     if "label_pred" in merged.columns:
+        expected_labels = pd.to_numeric(merged["label"], errors="coerce")
+        supplied_labels = pd.to_numeric(merged["label_pred"], errors="coerce")
+        if (
+            expected_labels.isna().any()
+            or supplied_labels.isna().any()
+            or not expected_labels.equals(supplied_labels)
+        ):
+            raise ValueError(
+                "Normalized iPro-MP labels do not match the mapped benchmark rows. "
+                "Use sequence_id to preserve row identity."
+            )
         merged = merged.drop(columns=["label_pred"])
     return _standard_prediction_columns(merged)
 
@@ -401,6 +417,34 @@ def _validate_mapping(mapping: pd.DataFrame) -> None:
     missing = required.difference(mapping.columns)
     if missing:
         raise ValueError(f"iPro-MP mapping CSV is missing columns: {sorted(missing)}")
+
+    for keys, description in (
+        (["split", "sequence_id"], "split/sequence_id"),
+        (["split", "row_index"], "split/row_index"),
+    ):
+        if mapping.duplicated(subset=keys).any():
+            raise ValueError(
+                f"iPro-MP mapping contains duplicate {description} keys."
+            )
+
+
+def _validate_mapping_matches_frames(
+    config: BenchmarkConfig,
+    mapping: pd.DataFrame,
+    frames: dict[str, pd.DataFrame],
+) -> None:
+    """Reject mappings generated from a different configured split set."""
+    expected = build_ipromp_mapping(config, frames)
+    columns = ["split", "row_index", "sequence_id", "label", "sequence"]
+    actual_rows = mapping[columns].copy()
+    expected_rows = expected[columns].copy()
+    actual_rows = actual_rows.sort_values(["split", "row_index"]).reset_index(drop=True)
+    expected_rows = expected_rows.sort_values(["split", "row_index"]).reset_index(drop=True)
+    if not actual_rows.equals(expected_rows):
+        raise ValueError(
+            "Cached iPro-MP mapping does not match the currently loaded benchmark "
+            "splits. Re-run `seqtrainer benchmark prepare-ipromp` to rebuild it."
+        )
 
 
 def _read_prediction_table(path: Path) -> pd.DataFrame:

@@ -7,6 +7,7 @@ auditable and cheap to unit test.
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from dataclasses import asdict, dataclass
 import csv
 import gzip
@@ -305,57 +306,100 @@ def select_anomaly_cases(
     eligible_hosts = [item for item in ordered if item.complete_segments >= needed]
     cases: list[AnomalyCase] = []
     used_hosts: set[str] = set()
+
+    # Precompute token-to-base and DNA-GC prefixes so exhaustive, strict donor
+    # searches remain linear in candidate segments rather than repeatedly
+    # summing long contig prefixes.
+    block_stats: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    for stream in ordered:
+        offsets = np.concatenate(
+            (np.asarray([0], dtype=np.int64), np.cumsum(stream.base_lengths, dtype=np.int64))
+        )
+        gc_prefix = np.concatenate(
+            (
+                np.asarray([0], dtype=np.int64),
+                np.cumsum(
+                    np.fromiter((base in "GC" for base in stream.dna.upper()), dtype=np.int8),
+                    dtype=np.int64,
+                ),
+            )
+        )
+        block_stats[stream.stream_id] = offsets, gc_prefix
+
+    def local_gc(stream: TokenStreamSlice, start: int, length: int) -> float:
+        offsets, gc_prefix = block_stats[stream.stream_id]
+        left = int(offsets[start * SEGMENT_TOKENS])
+        right = int(offsets[(start + length) * SEGMENT_TOKENS])
+        return float(gc_prefix[right] - gc_prefix[left]) / max(right - left, 1)
+
     for host in eligible_hosts:
         if host.stream_id in used_hosts:
             continue
         boundary = config.warmup_segments
-        host_gc = gc_fraction(host.base_block(boundary, longest))
-        donor_choice: tuple[TokenStreamSlice, int, float] | None = None
+        hard_options: dict[int, tuple[list[float], dict[float, int]]] = {}
+        for length in config.insertion_segments:
+            starts_by_gc: dict[float, int] = {}
+            for start in range(host.complete_segments - length + 1):
+                if not (start + length <= boundary or start >= boundary + length):
+                    continue
+                value = local_gc(host, start, length)
+                starts_by_gc[value] = min(start, starts_by_gc.get(value, start))
+            hard_options[length] = sorted(starts_by_gc), starts_by_gc
+
+        def hard_match(length: int, target: float) -> tuple[int, float] | None:
+            values, starts_by_gc = hard_options[length]
+            position = bisect_left(values, target)
+            candidates = [
+                (abs(values[index] - target), starts_by_gc[values[index]], values[index])
+                for index in (position - 1, position)
+                if 0 <= index < len(values)
+                and abs(values[index] - target) <= config.gc_tolerance + 1e-12
+            ]
+            if not candidates:
+                return None
+            _, start, value = min(candidates)
+            return start, value
+
+        donor_choice: tuple[
+            TokenStreamSlice,
+            int,
+            dict[int, tuple[float, float, int, float]],
+        ] | None = None
         for donor in ordered:
             if donor.accession == host.accession or donor.clade_group == host.clade_group:
                 continue
-            match = _find_gc_block(donor, longest, host_gc, config.gc_tolerance)
-            if match is not None:
-                donor_choice = donor, match[0], match[1]
+            for donor_start in range(donor.complete_segments - longest + 1):
+                length_matches: dict[int, tuple[float, float, int, float]] = {}
+                for length in config.insertion_segments:
+                    donor_gc = local_gc(donor, donor_start, length)
+                    host_gc = local_gc(host, boundary, length)
+                    if abs(donor_gc - host_gc) > config.gc_tolerance + 1e-12:
+                        break
+                    hard = hard_match(length, donor_gc)
+                    if hard is None:
+                        break
+                    length_matches[length] = (donor_gc, host_gc, hard[0], hard[1])
+                if len(length_matches) == len(config.insertion_segments):
+                    donor_choice = donor, donor_start, length_matches
+                    break
+            if donor_choice is not None:
                 break
         if donor_choice is None:
             continue
-        hard = _find_gc_block(
-            host,
-            longest,
-            donor_choice[2],
-            config.gc_tolerance,
-            excluded=(boundary, boundary + longest),
-        )
-        if hard is None:
-            continue
+        donor, donor_start, length_matches = donor_choice
         wrong = next(
             (
                 item
                 for item in ordered
-                if item.stream_id not in {host.stream_id, donor_choice[0].stream_id}
-                and item.accession not in {host.accession, donor_choice[0].accession}
+                if item.stream_id not in {host.stream_id, donor.stream_id}
+                and item.accession not in {host.accession, donor.accession}
                 and item.complete_segments >= config.warmup_segments
             ),
-            donor_choice[0],
+            donor,
         )
-        used_hosts.add(host.stream_id)
-        donor, donor_start, _ = donor_choice
+        pair_cases: list[AnomalyCase] = []
         for length in config.insertion_segments:
-            donor_gc = gc_fraction(donor.base_block(donor_start, length))
-            host_length_gc = gc_fraction(host.base_block(boundary, length))
-            if abs(donor_gc - host_length_gc) > config.gc_tolerance + 1e-12:
-                break
-            hard_length = _find_gc_block(
-                host,
-                length,
-                donor_gc,
-                config.gc_tolerance,
-                excluded=(boundary, boundary + length),
-            )
-            if hard_length is None:
-                break
-            hard_start, hard_gc = hard_length
+            donor_gc, host_length_gc, hard_start, hard_gc = length_matches[length]
             window_end = boundary + length + config.recovery_segments
             base = list(host.token_ids[: window_end * SEGMENT_TOKENS + 1])
             width = length * SEGMENT_TOKENS
@@ -368,7 +412,7 @@ def select_anomaly_cases(
                 for name, value in (("different_ani", different), ("same_host", same), ("untouched", base))
             }
             identity = f"{host.stream_id}|{donor.stream_id}|{length}|{config.seed}"
-            cases.append(
+            pair_cases.append(
                 AnomalyCase(
                     case_id="anomaly_" + sha256_bytes(identity.encode())[:16],
                     host_stream_id=host.stream_id,
@@ -396,6 +440,10 @@ def select_anomaly_cases(
                     },
                 )
             )
+        # A host identity is committed only after its complete insertion grid
+        # has passed every cross-ANI, local-GC, and hard-negative contract.
+        cases.extend(pair_cases)
+        used_hosts.add(host.stream_id)
         if len(used_hosts) == config.hosts:
             break
     if len(used_hosts) != config.hosts or len(cases) != config.hosts * len(config.insertion_segments):

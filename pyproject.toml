@@ -84,6 +84,7 @@ seqtrainer-titans-stage-c-architecture = "seqtrainer.torch.titans_paper_mac_stag
 seqtrainer-titans-stage-c-generate = "seqtrainer.torch.titans_paper_mac_stage_c.generation_cli:main"
 seqtrainer-titans-stage-c-panel = "seqtrainer.torch.titans_paper_mac_stage_c.panel_cli:main"
 seqtrainer-titans-stage-c-scale-gate = "seqtrainer.torch.titans_paper_mac_stage_c.scale_gate_cli:main"
+seqtrainer-titans-stage-c-context-eval = "seqtrainer.torch.titans_paper_mac_stage_c.context_eval_cli:main"
 
 [project.urls]
 Homepage = "https://github.com/SynBioDex/SeqTrainer"

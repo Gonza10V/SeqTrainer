@@ -34,6 +34,16 @@ from .tokenizers import (
     normalize_dna,
 )
 from .study import StudyProtocol, amend, canonical_json, initialize, record, report, validate_protocol, verify
+from .context_eval import (
+    AnomalyCase,
+    CaseResumeStore,
+    ContextEvalConfig,
+    NeedleCase,
+    TokenStreamSlice,
+    select_anomaly_cases,
+    select_needle_cases,
+    stage_checkpoint,
+)
 
 __all__ = [
     "EncodedDNA",
@@ -82,4 +92,12 @@ __all__ = [
     "amend",
     "verify",
     "report",
+    "AnomalyCase",
+    "CaseResumeStore",
+    "ContextEvalConfig",
+    "NeedleCase",
+    "TokenStreamSlice",
+    "select_anomaly_cases",
+    "select_needle_cases",
+    "stage_checkpoint",
 ]

@@ -85,6 +85,36 @@ def test_anomaly_selection_refuses_to_relax_gc_or_group_contract() -> None:
         select_anomaly_cases(streams, ContextEvalConfig())
 
 
+def test_anomaly_selection_searches_for_a_complete_multilength_pair() -> None:
+    tokenizer = SeqTrainerBaseTokenizer()
+
+    def segmented(identity: str, accession: str, group: str, values: list[int]) -> TokenStreamSlice:
+        tokens = tuple(token for value in values for token in [value] * 32) + (values[-1],)
+        return TokenStreamSlice(
+            identity, accession, group, tokens, (1,) * len(tokens), tokenizer.decode(tokens)
+        )
+
+    host_pattern = ([2, 2, 4, 4] * 10)[:40]
+    donor_pattern = [4, 2, 2, 4, 2, 2, 4, 4]
+    streams = (
+        segmented("host:chromosome", "host", "ani99:host", host_pattern),
+        segmented("donor:chromosome", "donor", "ani99:donor", donor_pattern),
+        segmented("wrong:chromosome", "wrong", "ani99:wrong", [4] * 16),
+    )
+    config = ContextEvalConfig(
+        hosts=1,
+        insertion_segments=(1, 4),
+        needle_distances=(3,),
+        gc_tolerance=0.0,
+    )
+
+    cases = select_anomaly_cases(streams, config)
+
+    assert len(cases) == 2
+    assert {case.donor_start_segment for case in cases} == {4}
+    assert all(case.host_accession == "host" for case in cases)
+
+
 def test_needle_cases_are_unique_natural_and_cover_smoke_grid() -> None:
     config = ContextEvalConfig(gc_tolerance=0.20)
     streams = _streams()

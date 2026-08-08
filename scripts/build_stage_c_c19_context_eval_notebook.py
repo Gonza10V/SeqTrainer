@@ -86,7 +86,7 @@ VALIDATION_PANEL=f'{DRIVE_ROOT}/study/stage_c_ecoli_medium_deep_memory_v3/panels
 TEST_PANEL=f'{DRIVE_ROOT}/study/stage_c_ecoli_medium_deep_memory_v3/panels/test.json'
 
 REPO_URL='https://github.com/Gonza10V/SeqTrainer.git'
-GIT_REF='ab2a63432ebda70da046c567775de6963969a5a4'  # immutable 03q evaluator implementation
+GIT_REF='b4c1d9d3e220da5a82e345b3fea823cb2ea35737'  # immutable 03q evaluator implementation
 VENV_DIR='/content/seqtrainer-context-eval-v1'
 TRUST_OWNED_CHECKPOINT=True
 RUN_SMOKE=True

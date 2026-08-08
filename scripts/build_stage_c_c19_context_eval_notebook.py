@@ -161,8 +161,19 @@ checkpoint_sha=hashlib.sha256(Path(CHECKPOINT_SOURCE).read_bytes()).hexdigest()
 MODEL_DIR=str(Path(REGISTRY)/'models'/f"{metadata['optimizer_step']}_{checkpoint_sha[:12]}")
 NOTEBOOK_RUN_DIR=str(Path(REGISTRY)/'notebook_runs'/Path(MODEL_DIR).name)
 def wrapped(label,command):
-    subprocess.run([*stage_c_runner,'--run-dir',NOTEBOOK_RUN_DIR,'--label',label,
-      '--repo',str(repo),'--',*command],check=True,env=os.environ)
+    try:
+        subprocess.run([*stage_c_runner,'--run-dir',NOTEBOOK_RUN_DIR,'--label',label,
+          '--repo',str(repo),'--',*command],check=True,env=os.environ)
+    except subprocess.CalledProcessError as error:
+        log_path=Path(NOTEBOOK_RUN_DIR)/'logs'/f'{label}.log'
+        tail=(
+            log_path.read_text(encoding='utf-8',errors='replace')[-20000:]
+            if log_path.is_file() else '<persisted step log was not created>'
+        )
+        raise RuntimeError(
+            f'03q step {label!r} failed. Full log: {log_path}\\n'
+            f'Last log characters:\\n{tail}'
+        ) from error
 wrapped('stage_checkpoint',[*evaluator,'stage','--source',CHECKPOINT_SOURCE,'--registry',REGISTRY,
  '--metadata-json',str(metadata_path),'--trust-owned-checkpoint'])
 print('Immutable model:',MODEL_DIR)

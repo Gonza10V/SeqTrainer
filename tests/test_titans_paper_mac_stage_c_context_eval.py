@@ -194,6 +194,8 @@ def test_notebook_is_generated_with_smoke_full_and_locked_test_cells() -> None:
     for dependency in ("scikit-learn>=1.3,<2", "rdflib>=6.3.2", "requests>=2.31", "sbol2>=1.4"):
         assert dependency in source
     assert "complete import preflight" in source
+    assert "Last log characters:" in source
+    assert "log_path.read_text" in source
     assert "RUN_SMOKE=True" in source
     assert "RUN_FULL=False" in source
     assert "RUN_LOCKED_TEST=False" in source

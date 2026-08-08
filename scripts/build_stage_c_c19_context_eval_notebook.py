@@ -104,24 +104,32 @@ if not repo.exists(): subprocess.run(['git','clone',REPO_URL,str(repo)],check=Tr
 subprocess.run(['git','-C',str(repo),'fetch','origin'],check=True)
 subprocess.run(['git','-C',str(repo),'checkout',GIT_REF],check=True)
 commit=subprocess.check_output(['git','-C',str(repo),'rev-parse','HEAD'],text=True).strip()
+evaluator_source=repo/'src'/'seqtrainer'/'torch'/'titans_paper_mac_stage_c'/'context_eval_cli.py'
+if not evaluator_source.is_file():
+    raise RuntimeError(
+        f'GIT_REF={GIT_REF!r} does not contain {evaluator_source.relative_to(repo)}. '
+        'Set GIT_REF to the pushed 03q evaluator commit and rerun this cell.'
+    )
 
 venv=Path(VENV_DIR)
 if not (venv/'bin'/'python').is_file():
     subprocess.run([sys.executable,'-m','pip','install','--quiet','virtualenv>=20.26'],check=True)
     subprocess.run([sys.executable,'-m','virtualenv','--system-site-packages',str(venv)],check=True)
 python=str(venv/'bin'/'python')
-subprocess.run([python,'-m','pip','install','--quiet','--upgrade','numpy==1.26.4','pandas==2.2.2','pyarrow==18.1.0'],check=True)
+subprocess.run([python,'-m','pip','install','--quiet','--upgrade',
+    'numpy==1.26.4','pandas==2.2.2','pyarrow==18.1.0',
+    'scikit-learn>=1.3,<2','rdflib>=6.3.2','requests>=2.31','sbol2>=1.4'],check=True)
 subprocess.run([python,'-m','pip','install','--no-deps','-e',str(repo)],check=True)
-# Fail here with an actionable message if GIT_REF predates the 03q evaluator.
+# Import the complete installed path now so missing dependencies are reported in
+# this bootstrap cell rather than being misclassified or hidden by the wrapper.
 module_probe=subprocess.run(
-    [python,'-c','from seqtrainer.torch.titans_paper_mac_stage_c.context_eval_cli import main; from seqtrainer.torch.titans_paper_mac_stage_c.colab_cli import main as wrapped_main'],
+    [python,'-c','import numpy,pandas,pyarrow,sklearn,rdflib,requests,sbol2,torch; from seqtrainer.torch.titans_paper_mac_stage_c.context_eval_cli import main; from seqtrainer.torch.titans_paper_mac_stage_c.colab_cli import main as wrapped_main'],
     text=True,capture_output=True,
 )
 if module_probe.returncode:
     raise RuntimeError(
-        f'GIT_REF={GIT_REF!r} does not contain the Stage C 03q evaluator. '
-        'Set GIT_REF to the pushed branch or commit containing context_eval.py and context_eval_cli.py, then rerun this cell. '
-        f'Import error: {module_probe.stderr.strip()}'
+        'The 03q source exists, but its isolated environment failed the complete import preflight. '
+        f'The underlying dependency/import error is:\\n{module_probe.stderr.strip()}'
     )
 # Invoke modules through the isolated interpreter rather than relying on pip to
 # refresh console-script shims when this Colab virtualenv already exists.

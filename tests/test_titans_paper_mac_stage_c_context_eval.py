@@ -189,8 +189,11 @@ def test_notebook_is_generated_with_smoke_full_and_locked_test_cells() -> None:
     assert "folder.mkdir(parents=True,exist_ok=True)" in source
     assert "NEXT ACTION: copy your checkpoint to exactly:" in source
     assert "Checkpoint not found. Copy latest.pt" in source
-    assert "does not contain the Stage C 03q evaluator" in source
+    assert "does not contain {evaluator_source.relative_to(repo)}" in source
     assert "context_eval_cli import main" in source
+    for dependency in ("scikit-learn>=1.3,<2", "rdflib>=6.3.2", "requests>=2.31", "sbol2>=1.4"):
+        assert dependency in source
+    assert "complete import preflight" in source
     assert "RUN_SMOKE=True" in source
     assert "RUN_FULL=False" in source
     assert "RUN_LOCKED_TEST=False" in source

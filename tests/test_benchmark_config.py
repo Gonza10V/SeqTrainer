@@ -23,7 +23,6 @@ def test_example_benchmark_configs_load():
         "dnabert2_finetune.toml",
         "ipromp.toml",
         "ipromp_external.toml",
-        "prokbert_mini.toml",
     ):
         config = load_benchmark_config(CONFIG_DIR / name)
         assert config.dataset.name == "ep_dnabert2_genomic_order"
@@ -54,11 +53,8 @@ def test_model_examples_share_dataset_and_split_contract():
 def test_t4_profiles_preserve_the_shared_scientific_contract():
     dnabert2 = load_benchmark_config(COLAB_CONFIG_DIR / "dnabert2_finetune_t4.toml")
     ipromp = load_benchmark_config(COLAB_CONFIG_DIR / "ipromp_external_t4.toml")
-    prokbert = load_benchmark_config(COLAB_CONFIG_DIR / "prokbert_mini_t4.toml")
-
     assert dnabert2.dataset.split_files == ipromp.dataset.split_files
-    assert dnabert2.dataset.split_files == prokbert.dataset.split_files
-    assert dnabert2.training.seed == ipromp.training.seed == prokbert.training.seed == 42
+    assert dnabert2.training.seed == ipromp.training.seed == 42
     assert dnabert2.evaluation.threshold_strategy == "validation_mcc"
     assert ipromp.evaluation.threshold_strategy == "validation_mcc"
     assert set(REQUIRED_CLASSIFICATION_METRICS).issubset(dnabert2.evaluation.metrics)
@@ -73,13 +69,6 @@ def test_t4_profiles_preserve_the_shared_scientific_contract():
     assert ipromp.model.params["folds"] == 5
     assert ipromp.model.params["species_id"] == 10
     assert ipromp.training.max_epochs == 0
-    assert prokbert.model.family == "prokbert"
-    assert prokbert.model.name == "neuralbioinfo/prokbert-mini"
-    assert prokbert.model.version == prokbert.model.params["revision"]
-    assert prokbert.model.params["tokenizer_revision"] == prokbert.model.version
-    assert prokbert.training.batch_size == 16
-    assert prokbert.training.params["gradient_accumulation_steps"] == 2
-    assert prokbert.environment.precision == "fp16"
 
 
 def test_ai_x_bio_model_examples_share_prepared_split_contract():

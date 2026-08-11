@@ -39,11 +39,6 @@ torch = [
   "torch>=2.2",
   "transformers>=4.30",
 ]
-prokbert = [
-  "torch>=2.2",
-  "transformers>=4.30",
-  "datasets>=2.18",
-]
 gnn = [
   "torch>=2.2",
   "torch-geometric>=2.4",

@@ -56,8 +56,6 @@ def run_benchmark(
         return _run_dnabert2(config, base_dir=base_dir, output_dir=output_dir, allow_skip=allow_skip)
     if family == "ipromp":
         return _run_ipromp(config, base_dir=base_dir, output_dir=output_dir, allow_skip=allow_skip)
-    if family == "prokbert":
-        return _run_prokbert(config, base_dir=base_dir, output_dir=output_dir, allow_skip=allow_skip)
     raise ValueError(f"Unsupported benchmark model family: {family}")
 
 
@@ -137,38 +135,6 @@ def _run_dnabert2(
             raise
         reason = f"DNABERT2 benchmark could not run with the available compute resources: {exc}"
         return _write_skipped_result(config, base_dir=base_dir, output_dir=output_dir, reason=reason)
-
-
-def _run_prokbert(
-    config: BenchmarkConfig,
-    *,
-    base_dir: str | Path | None,
-    output_dir: str | Path | None,
-    allow_skip: bool,
-) -> BenchmarkRunResult:
-    """Dispatch the optional ProkBERT benchmark through the shared harness."""
-    try:
-        from seqtrainer.torch.prokbert_benchmark import run_prokbert_csv_splits
-
-        return run_prokbert_csv_splits(
-            config,
-            base_dir=base_dir,
-            output_dir=Path(output_dir or config.outputs.output_dir),
-        )
-    except (BenchmarkSkipped, ModuleNotFoundError, ImportError) as exc:
-        if not allow_skip:
-            raise
-        return _write_skipped_result(
-            config,
-            base_dir=base_dir,
-            output_dir=output_dir,
-            reason=f"ProkBERT benchmark is unavailable: {exc}",
-            extra={
-                "status": "skipped",
-                "model_family": "prokbert",
-                "skip_reason": str(exc),
-            },
-        )
 
 
 def _run_ipromp(

@@ -127,8 +127,3 @@ claim.
 For full per-split metrics, confusion counts, histories, and model-specific
 notes, see the detailed result files in the model benchmark folders.
 
-## ProkBERT-mini pending execution
-
-| Model | Test MCC | Test AUPRC | Status |
-|---|---:|---:|---|
-| ProkBERT-mini | Not run | Not run | Pending canonical shared-split Colab execution |

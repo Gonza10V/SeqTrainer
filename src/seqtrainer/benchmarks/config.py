@@ -25,7 +25,7 @@ REQUIRED_CLASSIFICATION_METRICS = {
     "confusion_matrix",
 }
 
-_ALLOWED_MODEL_FAMILIES = {"cnn", "dnabert2", "ipromp", "prokbert"}
+_ALLOWED_MODEL_FAMILIES = {"cnn", "dnabert2", "ipromp"}
 _ALLOWED_DATASET_FORMATS = {"csv", "sbol", "fasta", "materialized_csv"}
 _ALLOWED_LABEL_SOURCES = {
     "provided_binary",

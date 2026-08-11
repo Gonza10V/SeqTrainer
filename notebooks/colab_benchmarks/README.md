@@ -158,3 +158,39 @@ license before using the benchmark or resulting checkpoint in a commercial
 setting. Only a completed full-data run on the canonical shared splits may be
 reported in the final benchmark table.
 
+## ProkBERT-mini Kaggle GPU Run
+
+[`../final_training/prokbert-mini-finetune-kaggle.ipynb`](../final_training/prokbert-mini-finetune-kaggle.ipynb)
+is the Kaggle-compatible workflow for the same generic
+`neuralbioinfo/prokbert-mini` backbone and shared SeqTrainer benchmark
+contract. Open the notebook from GitHub or import it into Kaggle, then attach
+a Kaggle Dataset containing these unchanged files:
+
+- `train_EP_DNA_BERT2_genomic_order.csv`
+- `eval_EP_DNA_BERT2_genomic_order.csv`
+- `test_EP_DNA_BERT2_genomic_order.csv`
+
+The notebook searches below `/kaggle/input`, copies the files to writable
+`/kaggle/working/SeqTrainer/data/promoter_classification/`, and writes the
+complete artifact set under
+`/kaggle/working/prokbert_mini_kaggle_run/full/`. Kaggle's existing CUDA
+PyTorch is retained; Transformers, Datasets, and the official ProkBERT
+repository are installed explicitly, with ProkBERT pinned to commit
+`8670ae92b816cff158a0b85647a8dea122e251eb`. The Hugging Face model and
+tokenizer are pinned to commit
+`feb2520a43cd9cdb5b3d8477e47209dbcb55d1dc`.
+
+The requested profile is physical batch size `16`, accumulation `2` (effective
+batch size `32`), FP16, learning rate `2e-5`, weight decay `0.01`, warmup
+ratio `0.10`, three epochs, patience `1`, and validation-MCC checkpointing.
+Use `RUN_MODE = "smoke"` to test installation, tokenization, training, and
+artifacts on a small stratified sample; smoke metrics are never scientific
+results. Use `RUN_MODE = "full"` for every row. Resume is enabled by default
+and rejects incompatible config, split, model-revision, or SeqTrainer-commit
+checkpoints.
+
+[Open the ProkBERT-mini Kaggle notebook on GitHub](https://github.com/simplyshree/SeqTrainer/blob/issue-3-all-model-baselines/notebooks/final_training/prokbert-mini-finetune-kaggle.ipynb)
+
+Only a completed full canonical run may be considered for `Results_Final.md`.
+The model's `CC-BY-NC-4.0` license must be reviewed before commercial use.
+

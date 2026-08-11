@@ -1,15 +1,21 @@
 # Benchmark Notebooks
 
-Benchmark notebooks are grouped by model family so experiments stay separate
-from the starter tutorials.
+This is the legacy benchmark-notebook index. The current shared model results
+are maintained under `notebooks/benchmarks_sg/` and hosted accelerator entry
+points under `notebooks/colab_benchmarks/`.
+
+All current model comparisons use the same predefined GSE144621 train,
+validation, and test CSV files, seed `42`, validation-only MCC thresholding,
+and held-out test reporting.
 
 ## CNN Benchmark
 
 - [`cnn_benchmark/`](cnn_benchmark/): CNN reference and CNN-v2 promoter
   classification benchmarks on the predefined train/eval/test split.
 
-The package benchmark harness currently supports the CNN benchmark path in this
-PR:
+The legacy CLI examples below cover the CNN benchmark path. The current shared
+model harness and DNABERT2/iPro-MP records are documented in the benchmark
+folders listed above:
 
 ```bash
 seqtrainer benchmark run config-examples/benchmarks/cnn.toml
@@ -31,11 +37,11 @@ selection, and early stopping.
 
 ## Colab Notebook Links
 
-- [CNN reference benchmark](https://colab.research.google.com/github/simplyshree/SeqTrainer/blob/issue-3-cnn-baseline-reproduction/notebooks/benchmarks/cnn_benchmark/cnn_reference_benchmark_colab.ipynb)
-- [CNN-v2 final benchmark](https://colab.research.google.com/github/simplyshree/SeqTrainer/blob/issue-3-cnn-baseline-reproduction/notebooks/benchmarks/cnn_benchmark/cnn_v2_final_benchmark_colab.ipynb)
+- [CNN reference benchmark](https://colab.research.google.com/github/simplyshree/SeqTrainer/blob/issue-3-all-model-baselines/notebooks/benchmarks/cnn_benchmark/cnn_reference_benchmark_colab.ipynb)
+- [CNN-v2 final benchmark](https://colab.research.google.com/github/simplyshree/SeqTrainer/blob/issue-3-all-model-baselines/notebooks/benchmarks/cnn_benchmark/cnn_v2_final_benchmark_colab.ipynb)
 
-After the notebook branch merges, replace the branch name in those URLs with
-`dev`.
+These links use the shared model-baselines branch. After it merges, replace the
+branch name with `dev` or, preferably, pin a reviewed commit SHA.
 
 ## Shared Outputs
 
@@ -54,6 +60,7 @@ Completed CNN benchmark runs should write:
 | --- | --- | ---: | ---: | ---: | --- |
 | CNN reference | `cnn.toml` | validation MCC |  |  | exact CNN baseline |
 | CNN-v2 | `cnn_v2.toml` | validation MCC |  |  | regularized CNN candidate |
+| DNABERT2 final training | `notebooks/final_training/config/dnabert2_final_training_t4.toml` | validation MCC | 0.192182 | 0.624236 | canonical shared split; full fine-tuning |
 
 ## Reproducibility Rule
 

@@ -8,5 +8,9 @@ testvenv/
 seqtrainer-data
 dnabert-out
 dnabertvenv
+outputs/
+data/promoter_classification/
+external/
 __pycache__/
 *.py[cod]
+.pytest_tmp/

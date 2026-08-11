@@ -65,7 +65,7 @@ def _build_parser() -> argparse.ArgumentParser:
     benchmark_run.add_argument(
         "--strict",
         action="store_true",
-        help="Fail instead of writing a skipped manifest for unsupported benchmark configs",
+        help="Fail instead of writing a skipped manifest when optional model dependencies are unavailable",
     )
     benchmark_manifest_nested = benchmark_sub.add_parser("manifest", help="Validate a config and write manifest artifacts")
     benchmark_manifest_nested.add_argument("config", type=Path)
@@ -74,6 +74,28 @@ def _build_parser() -> argparse.ArgumentParser:
     benchmark_compare = benchmark_sub.add_parser("compare", help="Compare completed benchmark artifact folders")
     benchmark_compare.add_argument("artifact_dirs", nargs="+", type=Path)
     benchmark_compare.add_argument("--output-dir", type=Path, required=True)
+    benchmark_prepare_dnabert2 = benchmark_sub.add_parser(
+        "prepare-dnabert2",
+        help="Tokenize configured split CSVs for DNABERT2 smoke checks",
+    )
+    benchmark_prepare_dnabert2.add_argument("config", type=Path)
+    benchmark_prepare_dnabert2.add_argument("--output-dir", type=Path)
+    benchmark_prepare_dnabert2.add_argument("--base-dir", type=Path, default=Path.cwd())
+    benchmark_prepare_ipromp = benchmark_sub.add_parser(
+        "prepare-ipromp",
+        help="Write FASTA, mapping, and command files for external iPro-MP prediction",
+    )
+    benchmark_prepare_ipromp.add_argument("config", type=Path)
+    benchmark_prepare_ipromp.add_argument("--output-dir", type=Path)
+    benchmark_prepare_ipromp.add_argument("--base-dir", type=Path, default=Path.cwd())
+    benchmark_prepare_ai_x_bio = benchmark_sub.add_parser(
+        "prepare-ai-x-bio",
+        help="Prepare an ai x bio Drive file as sequence,label,id train/validation/test CSVs",
+    )
+    benchmark_prepare_ai_x_bio.add_argument("--drive-root", type=Path, default=Path("/content/drive/MyDrive"))
+    benchmark_prepare_ai_x_bio.add_argument("--source-file", type=Path)
+    benchmark_prepare_ai_x_bio.add_argument("--output-dir", type=Path, default=Path("data/benchmarks/ai_x_bio"))
+    benchmark_prepare_ai_x_bio.add_argument("--seed", type=int, default=42)
 
     sparql = subparsers.add_parser("sparql", help="SPARQL helpers")
     sparql_sub = sparql.add_subparsers(dest="sparql_command", required=True)
@@ -208,6 +230,51 @@ def main(argv: list[str] | None = None) -> int:
             written = compare_benchmark_outputs(args.artifact_dirs, output_dir=args.output_dir)
             print(f"comparison_metrics={written['comparison_metrics']}")
             print(f"comparison_summary={written['comparison_summary']}")
+            return 0
+
+        if args.benchmark_command == "prepare-dnabert2":
+            from seqtrainer.benchmarks import prepare_dnabert2_tokenized_splits
+
+            result = prepare_dnabert2_tokenized_splits(
+                args.config,
+                base_dir=args.base_dir,
+                output_dir=args.output_dir,
+            )
+            print(f"output_dir={result.output_dir}")
+            print(f"metadata={result.metadata_path}")
+            for split, path in result.tokenized_paths.items():
+                print(f"{split}={path}")
+            return 0
+
+        if args.benchmark_command == "prepare-ipromp":
+            from seqtrainer.adapters.ipromp import prepare_ipromp_inputs
+
+            result = prepare_ipromp_inputs(
+                args.config,
+                base_dir=args.base_dir,
+                output_dir=args.output_dir,
+            )
+            print(f"output_dir={result.output_dir}")
+            print(f"mapping_csv={result.mapping_csv}")
+            print(f"command_script={result.command_script}")
+            print(f"external_prediction_schema={result.prediction_schema}")
+            for split, path in result.fasta_paths.items():
+                print(f"{split}={path}")
+            return 0
+
+        if args.benchmark_command == "prepare-ai-x-bio":
+            from seqtrainer.benchmarks import prepare_ai_x_bio_splits
+
+            result = prepare_ai_x_bio_splits(
+                drive_root=args.drive_root,
+                source_file=args.source_file,
+                output_dir=args.output_dir,
+                seed=args.seed,
+            )
+            print(f"output_dir={result.output_dir}")
+            print(f"metadata={result.metadata_path}")
+            for split, path in result.split_paths.items():
+                print(f"{split}={path}")
             return 0
 
     if args.command == "benchmark-manifest":

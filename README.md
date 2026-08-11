@@ -58,14 +58,22 @@ seqtrainer inspect-sbol data/sbol_data/sample_design_0.xml
 seqtrainer build-dataset data/sbol_data/sample_design_0.xml
 seqtrainer benchmark run config-examples/benchmarks/cnn.toml
 seqtrainer benchmark run config-examples/benchmarks/cnn_v2.toml
-seqtrainer benchmark compare outputs/benchmarks/cnn* --output-dir outputs/benchmarks/comparison
+seqtrainer benchmark prepare-dnabert2 config-examples/benchmarks/dnabert2_smoke.toml
+seqtrainer benchmark run config-examples/benchmarks/dnabert2_frozen.toml
+seqtrainer benchmark run config-examples/benchmarks/ipromp_external.toml
+seqtrainer benchmark compare outputs/benchmarks/* --output-dir outputs/benchmarks/comparison
 ```
 
-CNN benchmark configs live in `config-examples/benchmarks/`. The benchmark
-runner writes reproducible artifacts such as `metrics.csv`, `metrics.json`,
-`predictions.csv`, `manifest.json`, `history.csv`, and model checkpoints when a
-model is trained. See `notebooks/benchmarks/cnn_benchmark/README.md` for the
-Colab-ready CNN workflow and comparison rules.
+Benchmark configs for CNN, CNN-v2, DNABERT2, and iPro-MP live in
+`config-examples/benchmarks/`. The benchmark runner writes reproducible
+artifacts such as `metrics.csv`, `metrics.json`, `predictions.csv`,
+`manifest.json`, `history.csv`, and model checkpoints when training occurs.
+Heavy model dependencies are gated so missing model files produce explicit
+skipped manifests rather than fake metrics. See
+`docs/benchmarks/promoter_benchmark.md` for the complete workflow. Current
+recorded benchmark summaries live under `notebooks/benchmarks_sg/`, especially
+`notebooks/benchmarks_sg/dnabert_benchmark/README.md` and
+`notebooks/benchmarks_sg/ipromp_benchmark/README.md`.
 
 ## Status
 

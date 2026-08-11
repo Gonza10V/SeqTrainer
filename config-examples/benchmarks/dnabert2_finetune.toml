@@ -1,7 +1,7 @@
 [experiment]
-name = "ipromp_ep_genomic_order"
+name = "dnabert2_finetune_ep_genomic_order"
 task = "bacterial_promoter_prediction"
-description = "iPro-MP adapter benchmark on the shared E. coli promoter classification split."
+description = "Optional full DNABERT2 fine-tuning benchmark on the shared E. coli promoter classification split."
 seed = 42
 
 [dataset]
@@ -29,28 +29,45 @@ seed = 42
 validation_name = "eval"
 
 [preprocessing]
-encoding = "fasta_adapter"
+encoding = "dnabert2_tokenizer"
 sequence_length = 300
 pad_or_trim = false
 
+[preprocessing.params]
+model_max_length = 104
+padding = "longest"
+pad_to_multiple_of = 8
+
 [model]
-family = "ipromp"
-name = "ipromp_ecoli_pretrained"
-version = "zenodo_model_revision_required_before_final_benchmark"
+family = "dnabert2"
+name = "zhihan1996/DNABERT-2-117M"
+version = "pin_model_revision_before_final_report"
 
 [model.params]
-adapter_mode = "external_fasta_prediction"
-dependency = "dnabert6"
-pretrained_files = "document_download_before_run"
+mode = "full_finetune"
+pooling = "mean"
+trust_remote_code = true
+allow_download = false
+require_model_files = true
+classifier_dropout = 0.1
+fine_tuning_scope = "all_encoder_layers"
+
+disable_flash_attention = true
 
 [training]
 seed = 42
-batch_size = 1
-max_epochs = 0
-learning_rate = 0.0
+batch_size = 8
+max_epochs = 5
+learning_rate = 0.00002
 
 [training.params]
-mode = "external_inference_only"
+optimizer = "adamw"
+loss = "bce_with_logits"
+warmup_ratio = 0.1
+weight_decay = 0.01
+early_stopping_patience = 2
+early_stopping_metric = "validation_mcc"
+diagnostics = ["train_loss", "validation_loss", "validation_mcc", "learning_rate"]
 
 [evaluation]
 primary_metric = "mcc"
@@ -69,11 +86,11 @@ metrics = [
 ]
 
 [outputs]
-output_dir = "outputs/benchmarks/ipromp_ep_genomic_order"
+output_dir = "outputs/benchmarks/dnabert2_finetune_ep_genomic_order"
 save_json = true
 save_csv = true
 save_predictions = true
 
 [environment]
 device = "auto"
-precision = "float32"
+precision = "bf16"

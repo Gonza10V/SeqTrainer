@@ -1,7 +1,7 @@
 [experiment]
-name = "dnabert2_frozen_ep_genomic_order"
+name = "dnabert2_final_training_t4_context_regularized_ep_genomic_order"
 task = "bacterial_promoter_prediction"
-description = "Frozen DNABERT2 encoder benchmark on the shared E. coli promoter classification split."
+description = "DNABERT2 full fine-tuning profile with lower learning rate, longer maximum run, more token context, and stronger classifier regularization."
 seed = 42
 
 [dataset]
@@ -34,32 +34,43 @@ sequence_length = 300
 pad_or_trim = false
 
 [preprocessing.params]
-model_max_length = 100
+model_max_length = 128
 padding = "longest"
-pad_to_multiple_of = 8
 
 [model]
 family = "dnabert2"
 name = "zhihan1996/DNABERT-2-117M"
-version = "pinned_revision_required_before_final_benchmark"
+version = "7bce263b15377fc15361f52cfab88f8b586abda0"
 
 [model.params]
-mode = "frozen_embedding_classifier"
+mode = "full_finetune"
 pooling = "mean"
 trust_remote_code = true
-classifier_dropout = 0.1
+allow_download = true
+require_model_files = true
+revision = "7bce263b15377fc15361f52cfab88f8b586abda0"
+classifier_dropout = 0.3
+fine_tuning_scope = "all_encoder_layers"
+disable_flash_attention = true
 
 [training]
 seed = 42
-batch_size = 32
-max_epochs = 20
-learning_rate = 0.001
+batch_size = 2
+max_epochs = 8
+learning_rate = 0.000005
 
 [training.params]
 optimizer = "adamw"
 loss = "bce_with_logits"
-warmup_ratio = 0.06
-early_stopping_metric = "mcc"
+warmup_ratio = 0.08
+weight_decay = 0.01
+early_stopping_patience = 3
+early_stopping_metric = "validation_mcc"
+gradient_accumulation_steps = 16
+gradient_checkpointing = true
+max_grad_norm = 1.0
+resource_profile = "colab_t4_reduced_epochs"
+diagnostics = ["train_loss", "validation_loss", "validation_mcc", "learning_rate"]
 
 [evaluation]
 primary_metric = "mcc"
@@ -71,17 +82,25 @@ metrics = [
   "auprc",
   "f1",
   "mcc",
+  "precision",
   "sensitivity",
   "specificity",
   "confusion_matrix",
 ]
 
 [outputs]
-output_dir = "outputs/benchmarks/dnabert2_frozen_ep_genomic_order"
+output_dir = "outputs/benchmarks/dnabert2_final_training_t4_context_regularized_seed42"
 save_json = true
 save_csv = true
 save_predictions = true
 
 [environment]
 device = "auto"
-precision = "bf16"
+precision = "fp16"
+
+[environment.params]
+platform = "Google Colab"
+gpu = "NVIDIA T4"
+python = "3.10"
+torch = "2.2.2"
+transformers = "4.29.2"

@@ -2,7 +2,23 @@
 
 This folder contains the Colab-ready CNN benchmark notebooks for the shared E. coli promoter classification split.
 
-The purpose is to make the CNN baseline reproducible before later model-family comparisons. The reference notebook preserves the original CNN baseline. The CNN-v2 notebook gives CNN one final stronger attempt before moving to later non-CNN model families.
+The purpose is to make the CNN baseline reproducible before comparing against DNABERT2 and iPro-MP. The reference notebook preserves the original CNN baseline. The CNN-v2 notebook gives CNN one final stronger attempt before moving to DNABERT2.
+
+## Current Result Summary
+
+| Model/run | Test MCC | Test AUPRC | Status |
+| --- | ---: | ---: | --- |
+| CNN reference, 10 cycles | 0.187208 | 0.618783 | Reproduced baseline |
+| CNN-v2, 50 cycles | **0.220884** | **0.645976** | Current best CNN result |
+| CNN-v2, 100 cycles | 0.208165 | 0.634116 | Longer run, did not improve |
+
+Conclusion: **CNN-v2 at 50 cycles is the current CNN baseline to beat**. It was
+selected by validation MCC and then reported once on the held-out test split.
+The 100-cycle run did not improve the validation/test MCC, so more cycles alone
+were not helpful.
+
+Open [`assets/RESULTS.md`](assets/RESULTS.md) for the complete metric tables,
+architecture, optimizer settings, threshold policy, and notebook output notes.
 
 ## Files
 
@@ -10,6 +26,8 @@ The purpose is to make the CNN baseline reproducible before later model-family c
 - `cnn_v2_final_benchmark_colab.ipynb`: final CNN-v2 check with two regularized enhanced CNN candidates.
 - `assets/cnn_reference_benchmark_metrics.svg`: reference CNN result snapshot.
 - `assets/cnn_v2_mcc_comparison.svg`: CNN-v2 comparison snapshot.
+- `assets/RESULTS.md`: complete result tables plus detailed reference CNN and
+  CNN-v2 architecture, training, split, seed, and threshold specifications.
 
 ## Dataset
 
@@ -76,12 +94,10 @@ The older SBOL tutorial baseline uses `data/sbol_data`, the first 40 `sample_des
 
 Open:
 
-- [CNN reference benchmark in Colab](https://colab.research.google.com/github/Gonza10V/SeqTrainer/blob/dev/notebooks/benchmarks/cnn_benchmark/cnn_reference_benchmark_colab.ipynb)
-- [CNN-v2 final benchmark in Colab](https://colab.research.google.com/github/Gonza10V/SeqTrainer/blob/dev/notebooks/benchmarks/cnn_benchmark/cnn_v2_final_benchmark_colab.ipynb)
+- [CNN reference benchmark in Colab](https://colab.research.google.com/github/simplyshree/SeqTrainer/blob/issue-3-all-model-baselines/notebooks/benchmarks_sg/cnn_benchmark/cnn_reference_benchmark_colab.ipynb)
+- [CNN-v2 final benchmark in Colab](https://colab.research.google.com/github/simplyshree/SeqTrainer/blob/issue-3-all-model-baselines/notebooks/benchmarks_sg/cnn_benchmark/cnn_v2_final_benchmark_colab.ipynb)
 
-The setup cells use upstream `dev` by default. Set the `SEQTRAINER_REVISION`
-environment variable to a release tag or commit SHA before running the setup
-cell when an exactly pinned revision is required.
+After this branch is merged, replace `issue-3-all-model-baselines` in the Colab URL with `dev`.
 
 Use a GPU runtime for `cnn_v2_final_benchmark_colab.ipynb`:
 
@@ -258,7 +274,7 @@ MCC improved progressively from the reference CNN to CNN-v2:
 | Test MCC | 0.187208 | 0.220884 | +0.033676 |
 | Test AUPRC | 0.618783 | 0.645976 | +0.027193 |
 
-This is a useful CNN-v2 improvement, but the scores are still modest for promoter prediction. DNABERT2 and iPro-MP have now been evaluated on the same benchmark surface; the final DNABERT2 run reached test MCC `0.192182` and AUPRC `0.624236`, so CNN-v2 remains the current CNN baseline to beat.
+This is a useful CNN-v2 improvement, but the scores are still modest for promoter prediction. DNABERT2 and iPro-MP have now been evaluated on the same predefined split; the final DNABERT2 run reached test MCC `0.192182` and AUPRC `0.624236`, so CNN-v2 remains the current CNN baseline to beat.
 
 ## Scientific Decision Rule
 
@@ -266,4 +282,4 @@ This is a useful CNN-v2 improvement, but the scores are still modest for promote
 
 `cnn_v2_final_benchmark_colab.ipynb` becomes a CNN-v2 candidate only if it improves validation MCC and then also improves held-out test MCC/AUPRC against the reference row.
 
-If CNN-v2 does not improve these metrics, keep the reference CNN and move to the next model-family benchmark on the same predefined split. If CNN-v2 does improve, keep it as the CNN baseline but still use the same split and metric policy for later model-family comparisons.
+If CNN-v2 does not improve these metrics, keep the reference CNN and move to the DNABERT2 benchmark on the same predefined split. If CNN-v2 does improve, keep it as the CNN baseline but still proceed to DNABERT2 and iPro-MP to test whether pretrained sequence models provide stronger promoter prediction performance.

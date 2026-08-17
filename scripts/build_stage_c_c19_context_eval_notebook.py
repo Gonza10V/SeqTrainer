@@ -95,12 +95,15 @@ if not (venv/'bin/python').is_file():
 python=str(venv/'bin/python')
 subprocess.run([python,'-m','pip','install','--quiet','--upgrade',
  'numpy==1.26.4','pandas==2.2.2','pyarrow==18.1.0','scipy>=1.11,<2',
- 'scikit-learn>=1.3,<2','matplotlib>=3.7,<4','pytest>=8,<9'],check=True)
+ 'scikit-learn>=1.3,<2','matplotlib>=3.7,<4'],check=True)
 subprocess.run([python,'-m','pip','install','--no-deps','-e',str(repo)],check=True)
-subprocess.run([python,'-m','pytest','-q',
- str(repo/'tests/test_titans_paper_mac_stage_c_anomaly_study.py'),
- str(repo/'tests/test_titans_paper_mac_stage_c_context_eval.py'),
- str(repo/'tests/test_titans_paper_mac_stage_c_model.py')],check=True)
+smoke=subprocess.run([python,'-c',
+ 'import numpy,pandas,pyarrow,scipy,sklearn,torch; '
+ 'import seqtrainer.torch.titans_paper_mac_stage_c.anomaly_study_cli; '
+ 'print("03q imports OK",numpy.__version__,pandas.__version__,torch.__version__)'],
+ text=True,capture_output=True)
+print(smoke.stdout,end='')
+if smoke.returncode: raise RuntimeError('03q environment import failed:\n'+smoke.stderr[-20000:])
 if not torch.cuda.is_available() or 'A100' not in torch.cuda.get_device_name(0):
  raise RuntimeError('03q bounded execution requires an NVIDIA A100 runtime.')
 

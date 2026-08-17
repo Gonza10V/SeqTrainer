@@ -1,4 +1,4 @@
-"""Build the portable Stage C 03q context-anomaly and needle Colab notebook."""
+"""Build the five-cell, sub-24-hour C19 anomaly-and-needle notebook."""
 
 from __future__ import annotations
 
@@ -6,222 +6,198 @@ import json
 from pathlib import Path
 
 
-ROOT = Path(__file__).parents[1]
+ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "notebooks/titans_stage_c/03q_stage_c_c19_context_anomaly_and_needle.ipynb"
 
 
 def cell(source: str, kind: str = "code") -> dict[str, object]:
-    result: dict[str, object] = {"cell_type": kind, "metadata": {}, "source": source.splitlines(keepends=True)}
+    value: dict[str, object] = {"cell_type": kind, "metadata": {}, "source": source.splitlines(keepends=True)}
     if kind == "code":
-        result.update(execution_count=None, outputs=[])
-    return result
+        value.update(execution_count=None, outputs=[])
+    return value
 
 
-INTRO = """# Stage C 03q — context anomaly and DNA needle evaluation
+RATIONALE = r"""# Stage C 03q — bounded C19 anomaly detection and DNA-needle validation
 
-The first code cell asks for an experiment name and Drive root, mounts Drive,
-and creates the complete experiment folder structure. Run that cell first,
-copy your checkpoint to the exact printed `inbox/latest.pt` path, and then
-continue with the bootstrap cell.
+This validation-only study freezes its synthetic tests before loading a model, qualifies the planned C19 work against a 22-hour A100 budget, and then evaluates the immutable final C19 checkpoint. C16 is disabled by default and can be added later, in a separate resumable session, on the byte-identical frozen panel.
 
-The notebook evaluates that immutable Stage C checkpoint without writing to a
-live training directory. It stages a verified copy in the experiment registry,
-runs the two-host smoke benchmark, and exposes opt-in full validation and an
-explicitly locked test run.
+The bounded contract uses eight held-out hosts, near/far E25 donors, 1/16/64-segment replacements at depth 16, and needle distances 3/16/64 with zero or sixteen near-key distractors. Primary anomaly endpoints are leave-one-host-out AUPRC, TPR at 1% FPR, false positives/Mb, localization IoU, and boundary error. Primary needle endpoints are carried-minus-reset target log probability, Recall@1, exact recovery, and long-distance performance. Hosts are the inferential units.
 
-Validation calibrates score thresholds. The test cell copies its completed
-validation configuration and thresholds unchanged. Memory conditions here are
-causal inference interventions on one checkpoint, not separately trained controls.
+Memory telemetry, predictive performance, and mechanistic diagnostics are reported separately. The protected test panel is unavailable to this workflow, and no horizontal-transfer, function, pathogenicity, or causal adaptive-memory claim is made.
 """
 
 
-SETUP = """# @title 1. Create the experiment folders
-EXPERIMENT_NAME = "c19_context_eval" # @param {type:"string"}
-ROOT_FOLDER = "/content/drive/MyDrive/SeqTrainerStageC" # @param {type:"string"}
+CONFIG = r'''# @title 2. Immutable inputs and execution switches
+RUN_C19=True
+RUN_C16_COMPARISON=False  # rerun later to add C16 on the completed C19 panel
+ROOT_FOLDER='/content/drive/MyDrive/SeqTrainerStageC'
+DRIVE_ROOT=ROOT_FOLDER
+EXPERIMENT_NAME='c19_bounded_anomaly_needle_v1'
+MAX_C19_HOURS=22.0
 
-from pathlib import Path
-from google.colab import drive
-
-mount=Path('/content/drive')
-if not (mount/'MyDrive').is_dir():
-    drive.mount(str(mount),timeout_ms=120000)
-
-experiment_name=EXPERIMENT_NAME.strip()
-if not experiment_name or experiment_name in {'.','..'} or '/' in experiment_name or '\\\\' in experiment_name:
-    raise ValueError('EXPERIMENT_NAME must be one folder name without / or \\\\ characters.')
-root=Path(ROOT_FOLDER).expanduser()
-if not root.is_absolute():
-    raise ValueError('ROOT_FOLDER must be an absolute Colab path such as /content/drive/MyDrive/SeqTrainerStageC')
-
-# DRIVE_ROOT is the shared Stage C data/study root. Each named experiment gets
-# its own immutable registry and catalog beneath it.
-DRIVE_ROOT=str(root)
-EXPERIMENT_DIR=root/experiment_name
-REGISTRY=EXPERIMENT_DIR/'evaluation_registry'
-CHECKPOINT_SOURCE=REGISTRY/'inbox'/'latest.pt'
-for folder in (
-    EXPERIMENT_DIR,
-    REGISTRY/'inbox',
-    REGISTRY/'models',
-    REGISTRY/'evaluations'/'context_anomaly_v1',
-    REGISTRY/'notebook_runs',
-):
-    folder.mkdir(parents=True,exist_ok=True)
-
-print('Experiment directory:',EXPERIMENT_DIR)
-print('Created/verified the evaluation folder structure.')
-print('\\nNEXT ACTION: copy your checkpoint to exactly:')
-print(CHECKPOINT_SOURCE)
-if CHECKPOINT_SOURCE.is_file():
-    print('\\nA latest.pt already exists and was left unchanged. You may continue to cell 2.')
-else:
-    print('\\nAfter latest.pt finishes uploading, run cell 2. Do not upload a checkpoint still being replaced by training.')
-"""
-
-
-BOOTSTRAP = """# @title 2. Verify inputs and bootstrap the evaluator
-# Shared dataset/panel locations. Edit these only if your Stage C data lives elsewhere.
-DATASET_DIR=f'{DRIVE_ROOT}/stage_c_dataset/ordered_streams/nonoverlap_6mer_v1'
-VALIDATION_PANEL=f'{DRIVE_ROOT}/study/stage_c_ecoli_medium_deep_memory_v3/panels/validation.json'
-TEST_PANEL=f'{DRIVE_ROOT}/study/stage_c_ecoli_medium_deep_memory_v3/panels/test.json'
+C19_CHECKPOINT=f'{ROOT_FOLDER}/runs/c19_v3_medium_adaptive_e25/latest.pt'
+C16_CHECKPOINT=f'{ROOT_FOLDER}/runs/c16_v3_medium_adaptive_5m/latest.pt'
+EXPECTED_CHECKPOINT_SHA256={
+ 'C19':'07fb2069b1f29a76898a90d8dfb899c5ca46cb90608fac45bc0ddff9876dbd1a',
+ 'C16':'21898362291f4fd1e6aafcfbe47e8b05dbe69e5c8036e6ae7927a6ac24ac4541',
+}
+DATASET_DIR=f'{ROOT_FOLDER}/stage_c_dataset/ordered_streams/nonoverlap_6mer_v1'
+VALIDATION_PANEL=f'{ROOT_FOLDER}/study/stage_c_ecoli_medium_deep_memory_v3/panels/validation.json'
+E25_TRAINING_PANEL=f'{ROOT_FOLDER}/study/stage_c_ecoli_medium_deep_memory_v3/panels/e25.json'
+ANI_PAIRS=f'{ROOT_FOLDER}/stage_c_dataset/manifests/ecoli_skani_triangle_extended.tsv'
+ANI_MEMBERSHIP=f'{ROOT_FOLDER}/stage_c_dataset/manifests/ecoli_ani_membership.parquet'
 
 REPO_URL='https://github.com/Gonza10V/SeqTrainer.git'
-GIT_REF='b4c1d9d3e220da5a82e345b3fea823cb2ea35737'  # immutable 03q evaluator implementation
-VENV_DIR='/content/seqtrainer-context-eval-v1'
+GIT_REF='REPLACE_WITH_EVALUATOR_COMMIT'
 TRUST_OWNED_CHECKPOINT=True
-RUN_SMOKE=True
-RUN_FULL=False                 # opt in only after smoke COMPLETE.json exists
-RUN_LOCKED_TEST=False          # explicit final holdout switch
-VALIDATION_BUNDLE=''           # completed full validation directory for locked test
+'''
 
+
+PREFLIGHT = r'''# @title 3. Mount Drive, test the evaluator, freeze cases, and qualify runtime
 from pathlib import Path
-import json, os, subprocess, sys
+from google.colab import drive
+import hashlib,json,os,subprocess,sys,torch
 
-if not Path(CHECKPOINT_SOURCE).is_file():
-    raise FileNotFoundError(f'Checkpoint not found. Copy latest.pt to {CHECKPOINT_SOURCE}, wait for the upload to finish, and rerun this cell.')
+mount=Path('/content/drive')
+if not (mount/'MyDrive').is_dir(): drive.mount(str(mount),timeout_ms=120000)
+root=Path(ROOT_FOLDER); experiment=root/EXPERIMENT_NAME
+registry=experiment/'validation_registry'; registry.mkdir(parents=True,exist_ok=True)
+bundle=registry/'bounded'; panel=bundle/'frozen_panel'
 repo=Path('/content/SeqTrainer')
 if not repo.exists(): subprocess.run(['git','clone',REPO_URL,str(repo)],check=True)
 subprocess.run(['git','-C',str(repo),'fetch','origin'],check=True)
-subprocess.run(['git','-C',str(repo),'checkout',GIT_REF],check=True)
+subprocess.run(['git','-C',str(repo),'checkout','--detach',GIT_REF],check=True)
 commit=subprocess.check_output(['git','-C',str(repo),'rev-parse','HEAD'],text=True).strip()
-evaluator_source=repo/'src'/'seqtrainer'/'torch'/'titans_paper_mac_stage_c'/'context_eval_cli.py'
-if not evaluator_source.is_file():
-    raise RuntimeError(
-        f'GIT_REF={GIT_REF!r} does not contain {evaluator_source.relative_to(repo)}. '
-        'Set GIT_REF to the pushed 03q evaluator commit and rerun this cell.'
-    )
+if commit != GIT_REF: raise RuntimeError('Evaluator commit did not resolve exactly.')
 
-venv=Path(VENV_DIR)
-if not (venv/'bin'/'python').is_file():
-    subprocess.run([sys.executable,'-m','pip','install','--quiet','virtualenv>=20.26'],check=True)
-    subprocess.run([sys.executable,'-m','virtualenv','--system-site-packages',str(venv)],check=True)
-python=str(venv/'bin'/'python')
+venv=Path('/content/seqtrainer-03q-bounded-v1')
+if not (venv/'bin/python').is_file():
+ subprocess.run([sys.executable,'-m','pip','install','--quiet','virtualenv>=20.26'],check=True)
+ subprocess.run([sys.executable,'-m','virtualenv','--system-site-packages',str(venv)],check=True)
+python=str(venv/'bin/python')
 subprocess.run([python,'-m','pip','install','--quiet','--upgrade',
-    'numpy==1.26.4','pandas==2.2.2','pyarrow==18.1.0',
-    'scikit-learn>=1.3,<2','rdflib>=6.3.2','requests>=2.31','sbol2>=1.4'],check=True)
+ 'numpy==1.26.4','pandas==2.2.2','pyarrow==18.1.0','scipy>=1.11,<2',
+ 'scikit-learn>=1.3,<2','matplotlib>=3.7,<4','pytest>=8,<9'],check=True)
 subprocess.run([python,'-m','pip','install','--no-deps','-e',str(repo)],check=True)
-# Import the complete installed path now so missing dependencies are reported in
-# this bootstrap cell rather than being misclassified or hidden by the wrapper.
-module_probe=subprocess.run(
-    [python,'-c','import numpy,pandas,pyarrow,sklearn,rdflib,requests,sbol2,torch; from seqtrainer.torch.titans_paper_mac_stage_c.context_eval_cli import main; from seqtrainer.torch.titans_paper_mac_stage_c.colab_cli import main as wrapped_main'],
-    text=True,capture_output=True,
-)
-if module_probe.returncode:
-    raise RuntimeError(
-        'The 03q source exists, but its isolated environment failed the complete import preflight. '
-        f'The underlying dependency/import error is:\\n{module_probe.stderr.strip()}'
-    )
-# Invoke modules through the isolated interpreter rather than relying on pip to
-# refresh console-script shims when this Colab virtualenv already exists.
-# These are the module equivalents of seqtrainer-titans-stage-c-context-eval
-# and seqtrainer-titans-stage-c-colab-run.
-evaluator=[python,'-m','seqtrainer.torch.titans_paper_mac_stage_c.context_eval_cli']
-stage_c_runner=[python,'-m','seqtrainer.torch.titans_paper_mac_stage_c.colab_cli']
-for path in (Path(CHECKPOINT_SOURCE),Path(DATASET_DIR),Path(VALIDATION_PANEL)):
-    if not path.exists(): raise FileNotFoundError(path)
-if not TRUST_OWNED_CHECKPOINT: raise ValueError('Full-state checkpoint loading requires explicit trust.')
+subprocess.run([python,'-m','pytest','-q',
+ str(repo/'tests/test_titans_paper_mac_stage_c_anomaly_study.py'),
+ str(repo/'tests/test_titans_paper_mac_stage_c_context_eval.py'),
+ str(repo/'tests/test_titans_paper_mac_stage_c_model.py')],check=True)
+if not torch.cuda.is_available() or 'A100' not in torch.cuda.get_device_name(0):
+ raise RuntimeError('03q bounded execution requires an NVIDIA A100 runtime.')
+
+def sha256_file(path):
+ digest=hashlib.sha256()
+ with open(path,'rb') as stream:
+  for chunk in iter(lambda:stream.read(8*1024*1024),b''): digest.update(chunk)
+ return digest.hexdigest()
+
+required_models={'C19':C19_CHECKPOINT}
+if RUN_C16_COMPARISON: required_models['C16']=C16_CHECKPOINT
+for model,path in required_models.items():
+ if not Path(path).is_file(): raise FileNotFoundError(path)
+ if sha256_file(path) != EXPECTED_CHECKPOINT_SHA256[model]:
+  raise RuntimeError(f'{model} checkpoint hash mismatch')
+for path in (DATASET_DIR,VALIDATION_PANEL,E25_TRAINING_PANEL,ANI_PAIRS,ANI_MEMBERSHIP):
+ if not Path(path).exists(): raise FileNotFoundError(path)
+if not TRUST_OWNED_CHECKPOINT: raise ValueError('Full-state loading requires explicit trust.')
 os.environ['TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD']='1'
-print('Evaluation commit:',commit)
-"""
+
+runner=[python,'-m','seqtrainer.torch.titans_paper_mac_stage_c.anomaly_study_cli']
+stage_c_runner=[python,'-m','seqtrainer.torch.titans_paper_mac_stage_c.colab_cli'] # seqtrainer-titans-stage-c-colab-run
+def run_checked(label,command):
+ wrapped=[*stage_c_runner,'--run-dir',str(registry/'notebook_runs'),'--label',label,
+          '--repo',str(repo),'--',*command]
+ result=subprocess.run(wrapped)
+ if result.returncode:
+  log=registry/'notebook_runs'/'logs'/f'{label}.log'
+  raise RuntimeError(f'{label} failed; log={log}\n{log.read_text(errors="replace")[-20000:]}')
+
+run_checked('bounded_freeze',[*runner,'freeze','--dataset-dir',DATASET_DIR,
+ '--validation-panel',VALIDATION_PANEL,'--e25-panel',E25_TRAINING_PANEL,
+ '--ani-pairs',ANI_PAIRS,'--ani-membership',ANI_MEMBERSHIP,
+ '--mode','bounded','--output',str(panel)])
+panel_manifest=json.loads((panel/'frozen_panel_manifest.json').read_text())
+if panel_manifest['mode']!='bounded' or panel_manifest['planned_workload']['total_segment_forwards']!=25344:
+ raise RuntimeError('Frozen panel is not the exact bounded 03q contract.')
+
+projection=registry/'runtime_projection.json'
+if not projection.is_file() or json.loads(projection.read_text()).get('panel_contract_sha256')!=panel_manifest['panel_contract_sha256']:
+ run_checked('bounded_runtime_projection',[*runner,'estimate-runtime',
+  '--checkpoint',C19_CHECKPOINT,'--frozen-panel',str(panel),'--output',str(projection),
+  '--device','cuda','--probe-forwards','64','--max-hours',str(MAX_C19_HOURS),
+  '--trust-owned-checkpoint'])
+runtime=json.loads(projection.read_text())
+if not runtime['accepted'] or runtime['projected_hours']>MAX_C19_HOURS:
+ raise RuntimeError(f"C19 projection {runtime['projected_hours']:.2f} h exceeds budget")
+print({'commit':commit,'gpu':torch.cuda.get_device_name(0),'panel':panel_manifest['panel_contract_sha256'],
+       'planned_forwards':panel_manifest['planned_workload']['total_segment_forwards'],
+       'projected_hours':runtime['projected_hours']})
+'''
 
 
-STAGE = """# Verified copy-through-partial staging; the source is hashed before and after.
-inspect=r'''import json,sys,torch
-p=torch.load(sys.argv[1],map_location='cpu',weights_only=False)
-t=p.get('trainer_state',{})
-print(json.dumps({'optimizer_step':int(t.get('optimizer_step',0)),
- 'processed_bases':int(t.get('processed_bases',0)),'model_config':p.get('model_config'),
- 'code_commit':p.get('code_commit'),'dataset_fingerprint':p.get('dataset_fingerprint'),
- 'copy_time_utc':__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()}))'''
-metadata=json.loads(subprocess.check_output([python,'-c',inspect,CHECKPOINT_SOURCE],text=True,env=os.environ))
-metadata_path=Path('/content/context_checkpoint_metadata.json')
-metadata_path.write_text(json.dumps(metadata,indent=2,sort_keys=True)+'\\n')
-import hashlib
-checkpoint_sha=hashlib.sha256(Path(CHECKPOINT_SOURCE).read_bytes()).hexdigest()
-MODEL_DIR=str(Path(REGISTRY)/'models'/f"{metadata['optimizer_step']}_{checkpoint_sha[:12]}")
-NOTEBOOK_RUN_DIR=str(Path(REGISTRY)/'notebook_runs'/Path(MODEL_DIR).name)
-def wrapped(label,command):
-    try:
-        subprocess.run([*stage_c_runner,'--run-dir',NOTEBOOK_RUN_DIR,'--label',label,
-          '--repo',str(repo),'--',*command],check=True,env=os.environ)
-    except subprocess.CalledProcessError as error:
-        log_path=Path(NOTEBOOK_RUN_DIR)/'logs'/f'{label}.log'
-        tail=(
-            log_path.read_text(encoding='utf-8',errors='replace')[-20000:]
-            if log_path.is_file() else '<persisted step log was not created>'
-        )
-        raise RuntimeError(
-            f'03q step {label!r} failed. Full log: {log_path}\\n'
-            f'Last log characters:\\n{tail}'
-        ) from error
-wrapped('stage_checkpoint',[*evaluator,'stage','--source',CHECKPOINT_SOURCE,'--registry',REGISTRY,
- '--metadata-json',str(metadata_path),'--trust-owned-checkpoint'])
-print('Immutable model:',MODEL_DIR)
-if RUN_SMOKE:
-    command=[*evaluator,'run','--dataset-dir',DATASET_DIR,'--panel-manifest',VALIDATION_PANEL,
-      '--model-dir',MODEL_DIR,'--registry',REGISTRY,'--split','val','--mode','smoke',
-      '--code-commit',commit,'--device','auto','--trust-owned-checkpoint']
-    wrapped('smoke_validation',command)
-else: print('Smoke disabled.')
-"""
+EXECUTION = r'''# @title 4. Run C19 first; optionally add C16 and paired comparison later
+def run_model(model,checkpoint,max_hours=None):
+ command=[*runner,'run-model','--model',model,'--checkpoint',checkpoint,
+  '--dataset-dir',DATASET_DIR,'--validation-panel',VALIDATION_PANEL,
+  '--frozen-panel',str(panel),'--output',str(bundle/model),'--device','cuda',
+  '--trust-owned-checkpoint']
+ if max_hours is not None: command.extend(['--max-runtime-hours',str(max_hours)])
+ run_checked(f'bounded_{model}',command)
+ return (bundle/model/'COMPLETE.json').is_file()
+
+c19_complete=(bundle/'C19'/'COMPLETE.json').is_file()
+if RUN_C19 and not c19_complete: c19_complete=run_model('C19',C19_CHECKPOINT,MAX_C19_HOURS)
+if not c19_complete:
+ paused=bundle/'C19'/'PAUSED.json'
+ print('C19 paused safely; rerun this cell unchanged.',paused.read_text() if paused.is_file() else '')
+else:
+ print('C19 complete:',bundle/'C19')
+
+c16_complete=(bundle/'C16'/'COMPLETE.json').is_file()
+if c19_complete and RUN_C16_COMPARISON and not c16_complete:
+ c16_complete=run_model('C16',C16_CHECKPOINT,MAX_C19_HOURS)
+if RUN_C16_COMPARISON and not c16_complete:
+ print('C16 comparison remains incomplete; rerun later without changing the frozen panel.')
+
+analysis=bundle/'analysis'
+if c19_complete:
+ run_checked('bounded_analyze',[*runner,'compare','--input',str(bundle),'--output',str(analysis)])
+print({'c19_complete':c19_complete,'c16_complete':c16_complete,'analysis':str(analysis)})
+'''
 
 
-FULL = """if RUN_FULL:
-    model_id=Path(MODEL_DIR).name
-    smoke=list((Path(REGISTRY)/'evaluations'/'context_anomaly_v1'/model_id/'val').glob('*/COMPLETE.json'))
-    if not smoke: raise RuntimeError('A completed smoke bundle is required before full validation.')
-    command=[*evaluator,'run','--dataset-dir',DATASET_DIR,'--panel-manifest',VALIDATION_PANEL,
-      '--model-dir',MODEL_DIR,'--registry',REGISTRY,'--split','val','--mode','full',
-      '--code-commit',commit,'--device','auto','--trust-owned-checkpoint']
-    wrapped('full_validation',command)
-else: print('Full validation is opt-in (RUN_FULL=False).')
-
-if RUN_LOCKED_TEST:
-    validation=Path(VALIDATION_BUNDLE)
-    if not validation.is_dir() or not (validation/'COMPLETE.json').is_file():
-        raise FileNotFoundError('VALIDATION_BUNDLE must name a completed validation bundle.')
-    command=[*evaluator,'run','--dataset-dir',DATASET_DIR,'--panel-manifest',TEST_PANEL,
-      '--model-dir',MODEL_DIR,'--registry',REGISTRY,'--split','test',
-      '--validation-bundle',str(validation),'--run-locked-test',
-      '--code-commit',commit,'--device','auto','--trust-owned-checkpoint']
-    wrapped('locked_test',command)
-else: print('Locked test disabled. This is the safe default.')
-
-# Scan immutable completed bundles and rebuild the catalog from manifests.
-wrapped('catalog',[*evaluator,'catalog','--registry',REGISTRY])
-model_id=Path(MODEL_DIR).name
-bundles=sorted((Path(REGISTRY)/'evaluations'/'context_anomaly_v1'/model_id).glob('*/*/COMPLETE.json'))
-for complete in bundles:
-    report=complete.parent/'REPORT.md'
-    print('\\nBUNDLE:',complete.parent)
-    if report.is_file(): print(report.read_text())
-"""
+ANALYSIS = r'''# @title 5. Validate, display, and content-address the available report
+from IPython.display import Markdown,display
+if not (bundle/'C19'/'COMPLETE.json').is_file():
+ print('No report yet: rerun cell 4 to resume C19.')
+else:
+ analysis=bundle/'analysis'
+ for required in ('COMPLETE.json','analysis_contract.json','SCIENTIFIC_REPORT.md',
+                  'segment_metrics.parquet','token_metrics.parquet','block_metrics.parquet',
+                  'needle_metrics.parquet','statistical_tests.parquet','out_of_fold_predictions.parquet'):
+  if not (analysis/required).is_file(): raise FileNotFoundError(analysis/required)
+ for model in ('C19','C16'):
+  if not (bundle/model/'COMPLETE.json').is_file(): continue
+  run_manifest=json.loads((bundle/model/'model_run_manifest.json').read_text())
+  if run_manifest['panel_contract_sha256'] != panel_manifest['panel_contract_sha256']:
+   raise RuntimeError(f'Refusing protocol-mismatched {model} result.')
+ complete=json.loads((analysis/'COMPLETE.json').read_text())
+ models='_'.join(complete['models'])
+ archive=Path(str(analysis)+'.zip')
+ archive_sha=sha256_file(archive)
+ retained=analysis.parent/f"bounded_{models}_{panel_manifest['panel_contract_sha256'][:12]}_{archive_sha[:12]}.zip"
+ if retained.exists():
+  if sha256_file(retained)!=archive_sha: raise RuntimeError('Archive name collision')
+  archive.unlink()
+ else: archive.rename(retained)
+ display(Markdown((analysis/'SCIENTIFIC_REPORT.md').read_text()))
+ print('Content-addressed archive:',retained)
+'''
 
 
 notebook = {
-    "cells": [
-        cell(INTRO, "markdown"), cell(SETUP), cell(BOOTSTRAP), cell(STAGE), cell(FULL),
-    ],
+    "cells": [cell(RATIONALE, "markdown"), cell(CONFIG), cell(PREFLIGHT), cell(EXECUTION), cell(ANALYSIS)],
     "metadata": {
         "accelerator": "GPU", "colab": {"gpuType": "A100"},
         "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},

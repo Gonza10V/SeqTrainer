@@ -109,6 +109,13 @@ def test_stage_c_lm_has_tied_head_finite_meta_gradients_and_bpb() -> None:
         "theta_max",
     }
     assert all(0 <= value <= 1 for value in output.gate_statistics.values())
+    assert len(output.block_diagnostics) == 1
+    diagnostic = output.block_diagnostics[0]
+    assert diagnostic["block_index"] == 0
+    assert diagnostic["block_count"] == 1
+    assert diagnostic["normalized_depth"] == pytest.approx(0.5)
+    assert diagnostic["batch_row"] == 0
+    assert diagnostic["finite"] == 1
     # The write happens after this segment's logits, so outer gradients through
     # gates are intentionally observed when the next segment reads the state.
     second = model.forward_segment(

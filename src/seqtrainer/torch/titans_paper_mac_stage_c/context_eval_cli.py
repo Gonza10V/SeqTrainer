@@ -138,6 +138,18 @@ def _score_segments(
             "memory_update_norm": output.memory_update_norm,
             "surprise_norm": output.surprise_norm,
             "state_drift_norm": output.state_drift_norm,
+            **output.gate_statistics,
+            **output.memory_gradient_statistics,
+            "finite": bool(
+                math.isfinite(nll)
+                and math.isfinite(output.retrieval_norm)
+                and math.isfinite(output.memory_update_norm)
+                and math.isfinite(output.surprise_norm)
+                and math.isfinite(output.state_drift_norm)
+                and all(math.isfinite(float(value)) for value in output.gate_statistics.values())
+                and all(math.isfinite(float(value)) for value in output.memory_gradient_statistics.values())
+            ),
+            "block_diagnostics": list(output.block_diagnostics),
         })
         states = detach_stream_states(output.states[0])
     return rows
@@ -450,8 +462,39 @@ def run(args: argparse.Namespace) -> Path:
                     )
                 },
             })
-        frame = pd.DataFrame(all_rows)
+        # Persist diagnostic levels separately.  Block count is architecture
+        # dependent, so the block table carries normalized depth and is never
+        # treated as a table of biological replicates.
+        block_rows: list[dict[str, object]] = []
+        token_rows: list[dict[str, object]] = []
+        flat_rows: list[dict[str, object]] = []
+        for row in all_rows:
+            flat = dict(row)
+            diagnostics = flat.pop("block_diagnostics", [])
+            token_nll = flat.pop("token_nll", None)
+            token_bpb = flat.pop("token_bpb", None)
+            flat_rows.append(flat)
+            identity = {
+                key: flat[key] for key in (
+                    "benchmark", "case_id", "host_accession", "sequence_sha256"
+                ) if key in flat
+            }
+            if "relative_segment" in flat:
+                identity["relative_segment"] = flat["relative_segment"]
+            if "intervention" in flat:
+                identity["intervention"] = flat["intervention"]
+            if "sequence_class" in flat:
+                identity["sequence_class"] = flat["sequence_class"]
+            for diagnostic in diagnostics:
+                block_rows.append({**identity, **diagnostic})
+            if token_nll is not None and token_bpb is not None:
+                for position, (nll_value, bpb_value) in enumerate(zip(token_nll, token_bpb)):
+                    token_rows.append({**identity, "token_position": position,
+                                       "token_nll_nats": nll_value, "token_bpb": bpb_value})
+        frame = pd.DataFrame(flat_rows)
         frame.to_parquet(output / "segment_scores.parquet", index=False)
+        pd.DataFrame(token_rows).to_parquet(output / "token_scores.parquet", index=False)
+        pd.DataFrame(block_rows).to_parquet(output / "block_scores.parquet", index=False)
         anomaly_summary = _anomaly_summary(
             [row for row in all_rows if row["benchmark"] == "anomaly"],
             {case.case_id: case.length_segments for case in anomaly_cases},

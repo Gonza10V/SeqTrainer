@@ -208,29 +208,31 @@ def test_atomic_resume_and_retained_artifacts_are_reproducible(tmp_path: Path) -
     assert not list(tmp_path.rglob("*.partial"))
 
 
-def test_notebook_is_generated_with_smoke_full_and_locked_test_cells() -> None:
+def test_notebook_is_five_cell_bounded_c19_first_validation_study() -> None:
     path = Path("notebooks/titans_stage_c/03q_stage_c_c19_context_anomaly_and_needle.ipynb")
     notebook = json.loads(path.read_text(encoding="utf-8"))
     source = "".join("".join(cell["source"]) for cell in notebook["cells"])
     assert notebook["nbformat"] == 4
-    assert "EXPERIMENT_NAME" in source
-    assert "ROOT_FOLDER" in source
-    assert "REGISTRY/'inbox'/'latest.pt'" in source
-    assert "folder.mkdir(parents=True,exist_ok=True)" in source
-    assert "NEXT ACTION: copy your checkpoint to exactly:" in source
-    assert "Checkpoint not found. Copy latest.pt" in source
-    assert "does not contain {evaluator_source.relative_to(repo)}" in source
-    assert "context_eval_cli import main" in source
-    for dependency in ("scikit-learn>=1.3,<2", "rdflib>=6.3.2", "requests>=2.31", "sbol2>=1.4"):
+    assert len(notebook["cells"]) == 5
+    assert "C16_CHECKPOINT" in source and "C19_CHECKPOINT" in source
+    assert "21898362291f4fd1e6aafcfbe47e8b05dbe69e5c8036e6ae7927a6ac24ac4541" in source
+    assert "07fb2069b1f29a76898a90d8dfb899c5ca46cb90608fac45bc0ddff9876dbd1a" in source
+    assert "E25_TRAINING_PANEL" in source and "ANI_PAIRS" in source
+    assert "titans_paper_mac_stage_c.anomaly_study_cli" in source
+    for dependency in ("scikit-learn>=1.3,<2", "pyarrow==18.1.0", "scipy>=1.11,<2", "pytest>=8,<9"):
         assert dependency in source
-    assert "complete import preflight" in source
-    assert "Last log characters:" in source
-    assert "log_path.read_text" in source
-    assert "RUN_SMOKE=True" in source
-    assert "RUN_FULL=False" in source
-    assert "RUN_LOCKED_TEST=False" in source
-    assert "--validation-bundle" in source
-    assert "seqtrainer-titans-stage-c-context-eval" in source
+    assert "RUN_C19=True" in source
+    assert "RUN_C16_COMPARISON=False" in source
+    assert "MAX_C19_HOURS=22.0" in source
+    assert "--mode','bounded'" in source
+    assert "total_segment_forwards']!=25344" in source
+    assert "estimate-runtime" in source
+    assert "--max-runtime-hours" in source
+    assert source.index("run_model('C19'") < source.index("run_model('C16'")
+    assert "RUN_LOCKED_TEST" not in source
+    assert "--run-locked-test" not in source
+    assert "--e25-panel" in source and "--ani-membership" in source
+    assert "REPLACE_WITH_EVALUATOR_COMMIT" in source
     for index, cell in enumerate(notebook["cells"]):
         if cell["cell_type"] == "code":
             compile("".join(cell["source"]), f"03q-cell-{index}", "exec")

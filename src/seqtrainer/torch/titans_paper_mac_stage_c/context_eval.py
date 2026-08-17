@@ -553,16 +553,25 @@ def materialize_needle_sequence_values(
         start = (natural_writes[0] // SEGMENT_TOKENS + 1) * SEGMENT_TOKENS
         available = max(query - start, 0)
         spacing = max(6, available // distractor_count)
+        vocabulary = sorted(set(map(int, host.token_ids)) - set(map(int, key)))
+        value_candidates = [
+            tuple(map(int, host.token_ids[index:index + 2]))
+            for index in range(0, len(host.token_ids) - 1)
+            if tuple(map(int, host.token_ids[index:index + 2])) != tuple(value)
+        ]
+        distinct_values = list(dict.fromkeys(value_candidates))
+        if not vocabulary or not distinct_values:
+            raise ValueError("needle host lacks natural distractor keys/values")
         for index in range(distractor_count):
             destination = start + index * spacing
-            source = 8 * SEGMENT_TOKENS + index * 6
-            if destination + 6 > query or source + 6 > len(host.token_ids):
+            if destination + 6 > query:
                 raise ValueError("needle window cannot accommodate requested distractors")
-            association = list(host.token_ids[source : source + 6])
-            if tuple(association[:4]) == tuple(key):
-                association[0] = next(
-                    int(token) for token in host.token_ids if int(token) != int(key[0])
-                )
+            # A near-match differs at exactly one of four key positions; every
+            # distractor has a non-target, distinct two-token value.
+            distractor_key = list(map(int, key))
+            position = index % len(distractor_key)
+            distractor_key[position] = vocabulary[(index // len(distractor_key)) % len(vocabulary)]
+            association = [*distractor_key, *distinct_values[index % len(distinct_values)]]
             sequence[destination : destination + 6] = association
     expected = {natural_writes[0], query}
     for _ in range(8):

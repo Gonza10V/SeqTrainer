@@ -45,6 +45,10 @@ class StageCLMOutput:
     state_drift_norm: float
     gate_statistics: dict[str, float]
     memory_gradient_statistics: dict[str, float]
+    # One row per memory block.  This is intentionally separate from the
+    # aggregate fields above: C16 and C19 have unequal block counts and must be
+    # compared by normalized network depth, not by treating blocks as samples.
+    block_diagnostics: tuple[dict[str, float | int], ...] = ()
     hidden_states: Tensor | None = None
 
 
@@ -268,6 +272,101 @@ class StageCPaperMACForCausalLM(nn.Module):
             ),
         }
 
+    def _block_diagnostics(
+        self,
+        before: BlockStates,
+        after: BlockStates,
+        retrievals: Sequence[Tensor],
+        block_inputs: Sequence[Tensor],
+        valid_mask: Tensor,
+        *,
+        no_memory: bool,
+    ) -> tuple[dict[str, float | int], ...]:
+        """Return auditable per-block memory telemetry for one stream segment."""
+
+        metric_names = (
+            "retrieval_norm", "memory_update_norm", "surprise_norm", "state_drift_norm",
+            *(
+                f"{name}_{stat}"
+                for name in ("alpha", "eta", "theta")
+                for stat in ("mean", "std", "min", "max")
+            ),
+            "raw_gradient_rms_max", "conditioned_gradient_rms_max", "gradient_scale_min",
+            "past_surprise_rms_max", "momentary_surprise_rms_max",
+            "combined_surprise_rms_max", "forgotten_weight_rms_max",
+            "gradient_intervention_fraction", "legacy_surprise_intervention_fraction",
+            "past_momentary_cosine_mean",
+        )
+        tensor_rows: list[Tensor] = []
+        block_count = len(self.stack.blocks)
+        with torch.no_grad():
+            for index, (block, prior, current, retrieval, sequence) in enumerate(
+                zip(self.stack.blocks, before, after, retrievals, block_inputs)
+            ):
+                update_terms = [
+                    (current.fast_weights[name] - prior.fast_weights[name]).square().sum()
+                    for name in prior.fast_weights
+                ]
+                initial = block.memory.initial_fast_weights()
+                drift_terms = [
+                    (current.fast_weights[name] - initial[name]).square().sum()
+                    for name in current.fast_weights
+                ]
+                surprise_terms = [value.square().sum() for value in current.surprise.values()]
+                gates = block.memory.gate_tensors(sequence.detach())
+                telemetry = {} if no_memory else block.memory.update_telemetry()
+                zero = sequence.new_tensor(0.0)
+                one = sequence.new_tensor(1.0)
+                update_count = telemetry.get("update_count", zero)
+                metrics: dict[str, Tensor] = {
+                    "retrieval_norm": retrieval.detach().square().sum().sqrt(),
+                    "memory_update_norm": torch.stack(update_terms).sum().sqrt() if update_terms else zero,
+                    "surprise_norm": torch.stack(surprise_terms).sum().sqrt() if surprise_terms else zero,
+                    "state_drift_norm": torch.stack(drift_terms).sum().sqrt() if drift_terms else zero,
+                }
+                for name, gate_values in gates.items():
+                    active = gate_values[valid_mask].float().flatten()
+                    metrics.update({
+                        f"{name}_mean": active.mean() if active.numel() else zero,
+                        f"{name}_std": active.std(unbiased=False) if active.numel() else zero,
+                        f"{name}_min": active.min() if active.numel() else zero,
+                        f"{name}_max": active.max() if active.numel() else zero,
+                    })
+                for name, default in (
+                    ("raw_gradient_rms_max", 0.0),
+                    ("conditioned_gradient_rms_max", 0.0),
+                    ("gradient_scale_min", 1.0),
+                    ("past_surprise_rms_max", 0.0),
+                    ("momentary_surprise_rms_max", 0.0),
+                    ("combined_surprise_rms_max", 0.0),
+                    ("forgotten_weight_rms_max", 0.0),
+                ):
+                    metrics[name] = telemetry.get(name, sequence.new_tensor(default))
+                metrics["gradient_intervention_fraction"] = (
+                    telemetry.get("gradient_interventions", zero) / update_count.clamp_min(1.0)
+                )
+                metrics["legacy_surprise_intervention_fraction"] = (
+                    telemetry.get("legacy_surprise_interventions", zero) / update_count.clamp_min(1.0)
+                )
+                metrics["past_momentary_cosine_mean"] = (
+                    telemetry.get("past_momentary_cosine_sum", zero) / update_count.clamp_min(1.0)
+                )
+                tensor_rows.append(torch.stack([
+                    metrics.get(name, one if name == "gradient_scale_min" else zero).float()
+                    for name in metric_names
+                ]))
+            materialized = torch.stack(tensor_rows).cpu().tolist() if tensor_rows else []
+        rows: list[dict[str, float | int]] = []
+        for index, values in enumerate(materialized):
+            row: dict[str, float | int] = {
+                "block_index": index, "block_count": block_count,
+                "normalized_depth": (index + 0.5) / block_count,
+                **dict(zip(metric_names, map(float, values))),
+            }
+            row["finite"] = int(all(math.isfinite(float(value)) for value in row.values()))
+            rows.append(row)
+        return tuple(rows)
+
     def _no_memory_forward(
         self,
         states: BlockStates,
@@ -312,6 +411,7 @@ class StageCPaperMACForCausalLM(nn.Module):
         Tensor,
         dict[str, float],
         dict[str, float],
+        tuple[dict[str, float | int], ...],
     ]:
         positions = torch.arange(self.config.segment_length, device=input_ids.device)
         embeddings = (
@@ -365,6 +465,14 @@ class StageCPaperMACForCausalLM(nn.Module):
                 "past_momentary_cosine_mean": 0.0,
             }
         )
+        block_diagnostics = self._block_diagnostics(
+            states,
+            next_states,
+            retrievals,
+            block_inputs,
+            valid_mask,
+            no_memory=mode is MemoryMode.NONE,
+        )
         return (
             logits,
             hidden_states,
@@ -375,6 +483,7 @@ class StageCPaperMACForCausalLM(nn.Module):
             drift_norm,
             gate_statistics,
             memory_gradient_statistics,
+            block_diagnostics,
         )
 
     def forward_segment(
@@ -411,6 +520,7 @@ class StageCPaperMACForCausalLM(nn.Module):
         drift_norms: list[Tensor] = []
         gate_rows: list[dict[str, float]] = []
         memory_gradient_rows: list[dict[str, float]] = []
+        block_diagnostic_rows: list[dict[str, float | int]] = []
         for row, row_states in enumerate(states):
             (
                 row_logits,
@@ -422,6 +532,7 @@ class StageCPaperMACForCausalLM(nn.Module):
                 drift_norm,
                 gate_statistics,
                 memory_gradient_statistics,
+                block_diagnostics,
             ) = self._forward_row(
                 row_states,
                 input_ids[row],
@@ -437,6 +548,11 @@ class StageCPaperMACForCausalLM(nn.Module):
             drift_norms.append(drift_norm.detach())
             gate_rows.append(gate_statistics)
             memory_gradient_rows.append(memory_gradient_statistics)
+            # Batch rows are independent streams.  Keep their block identities
+            # explicit should diagnostic batching be used in the future.
+            block_diagnostic_rows.extend(
+                {**item, "batch_row": row} for item in block_diagnostics
+            )
         stacked = torch.stack(logits)
         loss = None
         loss_sum = None
@@ -524,6 +640,7 @@ class StageCPaperMACForCausalLM(nn.Module):
             state_drift_norm=state_drift_norm,
             gate_statistics=gate_statistics,
             memory_gradient_statistics=memory_gradient_statistics,
+            block_diagnostics=tuple(block_diagnostic_rows),
             hidden_states=torch.stack(hidden_rows),
         )
 

@@ -48,7 +48,7 @@ ANI_PAIRS=f'{ROOT_FOLDER}/stage_c_dataset/manifests/ecoli_skani_triangle_extende
 ANI_MEMBERSHIP=f'{ROOT_FOLDER}/stage_c_dataset/manifests/ecoli_ani_membership.parquet'
 
 REPO_URL='https://github.com/Gonza10V/SeqTrainer.git'
-GIT_REF='REPLACE_WITH_EVALUATOR_COMMIT'
+GIT_REF='2e869da44c2fb00c93101f72dfe7a88074fb4e2c'
 TRUST_OWNED_CHECKPOINT=True
 '''
 

@@ -232,7 +232,8 @@ def test_notebook_is_five_cell_bounded_c19_first_validation_study() -> None:
     assert "RUN_LOCKED_TEST" not in source
     assert "--run-locked-test" not in source
     assert "--e25-panel" in source and "--ani-membership" in source
-    assert "REPLACE_WITH_EVALUATOR_COMMIT" in source
+    assert "2e869da44c2fb00c93101f72dfe7a88074fb4e2c" in source
+    assert "REPLACE_WITH_EVALUATOR_COMMIT" not in source
     for index, cell in enumerate(notebook["cells"]):
         if cell["cell_type"] == "code":
             compile("".join(cell["source"]), f"03q-cell-{index}", "exec")

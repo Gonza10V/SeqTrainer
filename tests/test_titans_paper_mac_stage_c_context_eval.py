@@ -219,10 +219,18 @@ def test_notebook_is_five_cell_bounded_c19_first_validation_study() -> None:
     assert "07fb2069b1f29a76898a90d8dfb899c5ca46cb90608fac45bc0ddff9876dbd1a" in source
     assert "E25_TRAINING_PANEL" in source and "ANI_PAIRS" in source
     assert "titans_paper_mac_stage_c.anomaly_study_cli" in source
-    for dependency in ("scikit-learn>=1.3,<2", "pyarrow==18.1.0", "scipy>=1.11,<2"):
+    for dependency in (
+        "scikit-learn>=1.3,<2",
+        "pyarrow==18.1.0",
+        "scipy>=1.11,<2",
+        "rdflib>=6.3.2",
+        "requests>=2.31",
+        "sbol2>=1.4",
+    ):
         assert dependency in source
     assert "'-m','pytest'" not in source
     assert "03q imports OK" in source
+    assert "import seqtrainer;" in source
     assert "RUN_C19=True" in source
     assert "RUN_C16_COMPARISON=False" in source
     assert "MAX_C19_HOURS=22.0" in source

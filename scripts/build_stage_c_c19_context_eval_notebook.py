@@ -95,11 +95,12 @@ if not (venv/'bin/python').is_file():
 python=str(venv/'bin/python')
 subprocess.run([python,'-m','pip','install','--quiet','--upgrade',
  'numpy==1.26.4','pandas==2.2.2','pyarrow==18.1.0','scipy>=1.11,<2',
- 'scikit-learn>=1.3,<2','matplotlib>=3.7,<4'],check=True)
+ 'scikit-learn>=1.3,<2','matplotlib>=3.7,<4',
+ 'rdflib>=6.3.2','requests>=2.31','sbol2>=1.4'],check=True)
 subprocess.run([python,'-m','pip','install','--no-deps','-e',str(repo)],check=True)
 smoke=subprocess.run([python,'-c',
- 'import numpy,pandas,pyarrow,scipy,sklearn,torch; '
- 'import seqtrainer.torch.titans_paper_mac_stage_c.anomaly_study_cli; '
+ 'import numpy,pandas,pyarrow,rdflib,requests,sbol2,scipy,sklearn,torch; '
+ 'import seqtrainer; import seqtrainer.torch.titans_paper_mac_stage_c.anomaly_study_cli; '
  'print("03q imports OK",numpy.__version__,pandas.__version__,torch.__version__)'],
  text=True,capture_output=True)
 print(smoke.stdout,end='')

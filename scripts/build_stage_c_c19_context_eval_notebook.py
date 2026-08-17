@@ -56,12 +56,38 @@ TRUST_OWNED_CHECKPOINT=True
 PREFLIGHT = r'''# @title 3. Mount Drive, test the evaluator, freeze cases, and qualify runtime
 from pathlib import Path
 from google.colab import drive
-import hashlib,json,os,subprocess,sys,torch
+import errno,hashlib,json,os,subprocess,sys,torch
 
 mount=Path('/content/drive')
-if not (mount/'MyDrive').is_dir(): drive.mount(str(mount),timeout_ms=120000)
-root=Path(ROOT_FOLDER); experiment=root/EXPERIMENT_NAME
-registry=experiment/'validation_registry'; registry.mkdir(parents=True,exist_ok=True)
+def initialize_drive():
+ """Return a write-qualified registry, remounting once after Drive FUSE EIO."""
+ for attempt in range(2):
+  try:
+   if attempt or not (mount/'MyDrive').is_dir():
+    if attempt:
+     print('Drive returned Errno 5; forcing one clean remount...')
+     try: drive.flush_and_unmount()
+     except Exception as error: print('Unmount warning:',repr(error))
+   drive.mount(str(mount),force_remount=bool(attempt),timeout_ms=120000)
+   root=Path(ROOT_FOLDER)
+   if not root.is_dir():
+    if not attempt: raise OSError(errno.EIO,'Drive root is not readable',str(root))
+    raise FileNotFoundError(root)
+   probe=root/'.03q_drive_write_probe'
+   probe.write_text('03q-drive-ok\n',encoding='utf-8')
+   if probe.read_text(encoding='utf-8')!='03q-drive-ok\n':
+    raise OSError(errno.EIO,'Drive write/read probe mismatch',str(probe))
+   probe.unlink()
+   experiment=root/EXPERIMENT_NAME
+   registry=experiment/'validation_registry'
+   registry.mkdir(parents=True,exist_ok=True)
+   return root,experiment,registry
+  except OSError as error:
+   if attempt or error.errno not in {errno.EIO,errno.ESTALE,errno.ENOTCONN}:
+    raise
+ raise RuntimeError('Google Drive remained unavailable after a forced remount.')
+
+root,experiment,registry=initialize_drive()
 bundle=registry/'bounded'; panel=bundle/'frozen_panel'
 repo=Path('/content/SeqTrainer')
 if not repo.exists(): subprocess.run(['git','clone',REPO_URL,str(repo)],check=True)

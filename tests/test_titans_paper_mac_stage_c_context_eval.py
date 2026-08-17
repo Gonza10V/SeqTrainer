@@ -229,6 +229,11 @@ def test_notebook_is_five_cell_bounded_c19_first_validation_study() -> None:
     assert "estimate-runtime" in source
     assert "--max-runtime-hours" in source
     assert source.index("run_model('C19'") < source.index("run_model('C16'")
+    assert "def initialize_drive():" in source
+    assert "force_remount=bool(attempt)" in source
+    assert "drive.flush_and_unmount()" in source
+    assert "'.03q_drive_write_probe'" in source
+    assert "errno.EIO,errno.ESTALE,errno.ENOTCONN" in source
     assert "RUN_LOCKED_TEST" not in source
     assert "--run-locked-test" not in source
     assert "--e25-panel" in source and "--ani-membership" in source

@@ -19,24 +19,21 @@ def cell(source: str, kind: str = "code") -> dict[str, object]:
 
 RATIONALE = r"""# Stage C 03q — bounded C19 anomaly detection and DNA-needle validation
 
-This validation-only study freezes its synthetic tests before loading a model, qualifies the planned C19 work against a 22-hour A100 budget, and then evaluates the immutable final C19 checkpoint. C16 is disabled by default and can be added later, in a separate resumable session, on the byte-identical frozen panel.
+This validation-only study freezes its synthetic tests before loading a model, qualifies C19 against a 22-hour A100 budget, and evaluates the immutable final C19 checkpoint. C16 is disabled by default and can be added later on the byte-identical frozen panel.
 
-Google Drive is accessed by folder ID through its API, not through the Colab Drive filesystem. Immutable inputs are downloaded once to Colab-local storage, all high-frequency evaluation I/O stays local, and only changed resumable artifacts are uploaded at four-hour chunk boundaries. This avoids repeated FUSE failures caused by resolving a My Drive root containing tens of thousands of items.
+Drive usage is deliberately small: mount once, copy immutable inputs to Colab-local storage, and replace one resumable results ZIP after each four-hour compute chunk. The evaluator never reads or writes Drive directly. This avoids both the separate Drive-API credential propagation flow and high-frequency Drive filesystem I/O.
 
-The bounded contract uses eight held-out hosts, near/far E25 donors, 1/16/64-segment replacements at depth 16, and needle distances 3/16/64 with zero or sixteen near-key distractors. Primary anomaly endpoints are leave-one-host-out AUPRC, TPR at 1% FPR, false positives/Mb, localization IoU, and boundary error. Primary needle endpoints are carried-minus-reset target log probability, Recall@1, exact recovery, and long-distance performance. Hosts are the inferential units.
-
-Memory telemetry, predictive performance, and mechanistic diagnostics are reported separately. The protected test panel is unavailable to this workflow, and no horizontal-transfer, function, pathogenicity, or causal adaptive-memory claim is made.
+The bounded contract uses eight held-out hosts, near/far E25 donors, 1/16/64-segment replacements at depth 16, and needle distances 3/16/64 with zero or sixteen near-key distractors. Hosts are the inferential units. Memory telemetry, predictive performance, and mechanistic diagnostics are reported separately; the protected test panel is unavailable to this workflow.
 """
 
 
-CONFIG = r'''# @title 2. Immutable inputs and execution switches
+CONFIG = r'''# @title 2. Inputs and switches
 RUN_C19=True
-RUN_C16_COMPARISON=False  # rerun later to add C16 on the completed C19 panel
-STAGE_C_FOLDER_ID='1vygqdWpiV7KDkTZLz4H_Gzc4tnz333GR'
-DRIVE_ROOT=f'drive-id:{STAGE_C_FOLDER_ID}'  # API identity; never a mounted filesystem path
+RUN_C16_COMPARISON=False  # enable in a later fresh session after C19 completes
+DRIVE_ROOT='/content/drive/MyDrive/SeqTrainerStageC'
+EXPERIMENT_NAME='c19_bounded_anomaly_needle_v1'
 LOCAL_INPUT_ROOT='/content/seqtrainer-03q-inputs'
 LOCAL_WORK_ROOT='/content/seqtrainer-03q-work'
-EXPERIMENT_NAME='c19_bounded_anomaly_needle_v1'
 MAX_C19_HOURS=22.0
 SYNC_CHUNK_HOURS=4.0
 
@@ -44,91 +41,52 @@ EXPECTED_CHECKPOINT_SHA256={
  'C19':'07fb2069b1f29a76898a90d8dfb899c5ca46cb90608fac45bc0ddff9876dbd1a',
  'C16':'21898362291f4fd1e6aafcfbe47e8b05dbe69e5c8036e6ae7927a6ac24ac4541',
 }
-
 REPO_URL='https://github.com/Gonza10V/SeqTrainer.git'
 GIT_REF='2e869da44c2fb00c93101f72dfe7a88074fb4e2c'
 TRUST_OWNED_CHECKPOINT=True
 '''
 
 
-PREFLIGHT = r'''# @title 3. Stage through the Drive API, test, freeze cases, and qualify runtime
+PREFLIGHT = r'''# @title 3. Mount once, stage locally, test, freeze, and qualify runtime
 from pathlib import Path
-from google.colab import auth
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
-from googleapiclient.http import MediaFileUpload,MediaIoBaseDownload
-import hashlib,json,os,shutil,subprocess,sys,time,torch
+from google.colab import drive
+import errno,hashlib,json,os,shutil,subprocess,sys,time,torch
 
-# Authenticate once. Do not mount Drive: MyDrive FUSE lookup is the source of Errno 5.
-auth.authenticate_user()
-drive_api=build('drive','v3',cache_discovery=False)
+mount=Path('/content/drive')
+drive.mount(str(mount),timeout_ms=120000)
+root=Path(DRIVE_ROOT)
+transient={errno.EIO,errno.ESTALE,errno.ENOTCONN,errno.ETIMEDOUT}
 def drive_retry(label,operation):
  last_error=None
  for delay in (0,2,5,10,20,30):
   if delay: time.sleep(delay)
   try: return operation()
-  except (HttpError,OSError) as error:
+  except OSError as error:
    last_error=error
+   if error.errno not in transient: raise
  raise RuntimeError(f'Drive operation {label!r} failed after retries: {last_error!r}')
 
-def list_drive_children(parent_id):
- items=[]; token=None
- while True:
-  response=drive_retry('list children',lambda:drive_api.files().list(
-   q=f"'{parent_id}' in parents and trashed=false",spaces='drive',
-   fields='nextPageToken,files(id,name,mimeType,md5Checksum,modifiedTime,size)',
-   pageSize=1000,pageToken=token).execute())
-  items.extend(response.get('files',[])); token=response.get('nextPageToken')
-  if not token: return items
-
-def drive_child(parent_id,name,mime_type=None,create_folder=False):
- if create_folder: mime_type='application/vnd.google-apps.folder'
- matches=[item for item in list_drive_children(parent_id)
-          if item['name']==name and (mime_type is None or item['mimeType']==mime_type)]
- if len(matches)>1: raise RuntimeError(f'Ambiguous Drive child {name!r} under {parent_id}')
- if matches: return matches[0]
- if not create_folder: raise FileNotFoundError(f'Drive child {name!r} under {parent_id}')
- body={'name':name,'mimeType':'application/vnd.google-apps.folder','parents':[parent_id]}
- return drive_retry(f'create folder {name}',lambda:drive_api.files().create(
-  body=body,fields='id,name,mimeType,modifiedTime').execute())
-
-def resolve_drive(relative):
- item={'id':STAGE_C_FOLDER_ID,'name':'SeqTrainerStageC','mimeType':'application/vnd.google-apps.folder'}
- for part in Path(relative).parts: item=drive_child(item['id'],part)
- return item
-
-stage_root=drive_retry('verify Stage C folder ID',lambda:drive_api.files().get(
- fileId=STAGE_C_FOLDER_ID,fields='id,name,mimeType').execute())
-if stage_root['mimeType']!='application/vnd.google-apps.folder': raise RuntimeError('STAGE_C_FOLDER_ID is not a folder')
-experiment_drive=drive_child(STAGE_C_FOLDER_ID,EXPERIMENT_NAME,create_folder=True)
-drive_registry=drive_child(experiment_drive['id'],'validation_registry',create_folder=True)
+drive_retry('read Stage C root',lambda:root.stat())
+experiment=root/EXPERIMENT_NAME
+drive_retry('create experiment folder',lambda:experiment.mkdir(parents=True,exist_ok=True))
+resume_zip=experiment/'03q_resume.zip'
 registry=Path(LOCAL_WORK_ROOT)/'validation_registry'
 registry.mkdir(parents=True,exist_ok=True)
 
-def download_drive_file(item,target):
- target.parent.mkdir(parents=True,exist_ok=True)
- partial=target.with_name(target.name+'.partial')
- request=drive_api.files().get_media(fileId=item['id'])
- with open(partial,'wb') as stream:
-  downloader=MediaIoBaseDownload(stream,request,chunksize=8*1024*1024); done=False
-  while not done: _,done=drive_retry(f"download {item['name']}",downloader.next_chunk)
- os.replace(partial,target)
-
-# Restore durable state once. All active evaluation I/O remains on local disk.
-def restore_drive_tree(folder_id,target):
- for item in list_drive_children(folder_id):
-  child=target/item['name']
-  if item['mimeType']=='application/vnd.google-apps.folder':
-   child.mkdir(parents=True,exist_ok=True); restore_drive_tree(item['id'],child)
-  else: download_drive_file(item,child)
-restore_drive_tree(drive_registry['id'],registry)
+# Restore only one durable object; evaluation itself stays under /content.
+if drive_retry('locate resume ZIP',lambda:resume_zip.is_file()):
+ local_resume=Path('/content/03q_resume_restore.zip')
+ drive_retry('restore resume ZIP',lambda:shutil.copyfile(resume_zip,local_resume))
+ shutil.unpack_archive(local_resume,registry)
+ print('Restored prior 03q progress.')
 bundle=registry/'bounded'; panel=bundle/'frozen_panel'
+
 repo=Path('/content/SeqTrainer')
 if not repo.exists(): subprocess.run(['git','clone',REPO_URL,str(repo)],check=True)
 subprocess.run(['git','-C',str(repo),'fetch','origin'],check=True)
 subprocess.run(['git','-C',str(repo),'checkout','--detach',GIT_REF],check=True)
 commit=subprocess.check_output(['git','-C',str(repo),'rev-parse','HEAD'],text=True).strip()
-if commit != GIT_REF: raise RuntimeError('Evaluator commit did not resolve exactly.')
+if commit!=GIT_REF: raise RuntimeError('Evaluator commit did not resolve exactly.')
 
 venv=Path('/content/seqtrainer-03q-bounded-v1')
 if not (venv/'bin/python').is_file():
@@ -153,89 +111,54 @@ def sha256_file(path):
  return digest.hexdigest()
 
 local_inputs=Path(LOCAL_INPUT_ROOT); local_inputs.mkdir(parents=True,exist_ok=True)
-source_paths={
- 'C19':'runs/c19_v3_medium_adaptive_e25/latest.pt',
- 'C16':'runs/c16_deep_adaptive_5m_paper_exact/latest.pt',
- 'dataset':'stage_c_dataset/ordered_streams/nonoverlap_6mer_v1',
- 'validation':'study/stage_c_ecoli_medium_deep_memory_v3/panels/validation.json',
- 'e25':'study/stage_c_ecoli_medium_deep_memory_v3/panels/e25.json',
- 'ani_pairs':'stage_c_dataset/manifests/ecoli_skani_triangle_extended.tsv',
- 'ani_membership':'stage_c_dataset/manifests/ecoli_ani_membership.parquet',
+sources={
+ 'C19':root/'runs/c19_v3_medium_adaptive_e25/latest.pt',
+ 'C16':root/'runs/c16_deep_adaptive_5m_paper_exact/latest.pt',
+ 'dataset':root/'stage_c_dataset/ordered_streams/nonoverlap_6mer_v1',
+ 'validation':root/'study/stage_c_ecoli_medium_deep_memory_v3/panels/validation.json',
+ 'e25':root/'study/stage_c_ecoli_medium_deep_memory_v3/panels/e25.json',
+ 'ani_pairs':root/'inputs/ecoli_skani_triangle.tsv',
+ 'ani_membership':root/'stage_c_dataset/manifests/ani99_membership.parquet',
 }
 
-def stage_file(label,source_relative,target,expected_sha=None):
- item=resolve_drive(source_relative)
- marker=target.with_name(target.name+'.drive.json')
- fingerprint={key:item.get(key) for key in ('id','md5Checksum','modifiedTime','size')}
+def stage_file(label,source,target,expected_sha=None):
  target.parent.mkdir(parents=True,exist_ok=True)
- if target.is_file() and marker.is_file() and json.loads(marker.read_text())==fingerprint:
-  if expected_sha is None or sha256_file(target)==expected_sha: return target
- download_drive_file(item,target)
- if expected_sha is not None and sha256_file(target)!=expected_sha:
-  raise RuntimeError(f'{label} staged checksum mismatch')
- marker.write_text(json.dumps(fingerprint,sort_keys=True)+'\n')
+ if target.is_file() and (expected_sha is None or sha256_file(target)==expected_sha): return target
+ if not drive_retry(f'locate {label}',lambda:source.is_file()): raise FileNotFoundError(source)
+ partial=target.with_name(target.name+'.partial')
+ drive_retry(f'copy {label}',lambda:shutil.copyfile(source,partial))
+ os.replace(partial,target)
+ if expected_sha and sha256_file(target)!=expected_sha: raise RuntimeError(f'{label} checksum mismatch')
  return target
 
-def stage_dataset(source_relative,target):
- source=resolve_drive(source_relative)
- manifest=drive_child(source['id'],'token_stream_manifest.json')
- fingerprint={key:manifest.get(key) for key in ('id','md5Checksum','modifiedTime','size')}
- sentinel=target/'.03q_local_stage.json'
- if sentinel.is_file() and json.loads(sentinel.read_text())==fingerprint:
-  return target
+def stage_dataset(source,target):
+ sentinel=target/'token_stream_manifest.json'
+ if sentinel.is_file(): return target
+ if not drive_retry('locate dataset',lambda:source.is_dir()): raise FileNotFoundError(source)
  target.mkdir(parents=True,exist_ok=True)
- restore_drive_tree(source['id'],target)
- sentinel.write_text(json.dumps(fingerprint,sort_keys=True)+'\n')
+ drive_retry('copy dataset',lambda:shutil.copytree(source,target,dirs_exist_ok=True))
  return target
 
-print('Local free space before staging:',shutil.disk_usage('/content').free/2**30,'GiB')
-C19_CHECKPOINT=str(stage_file('C19 checkpoint',source_paths['C19'],local_inputs/'checkpoints/C19.pt',EXPECTED_CHECKPOINT_SHA256['C19']))
-C16_CHECKPOINT=str(local_inputs/'checkpoints/C16.pt')
+print('Local free space before staging:',round(shutil.disk_usage('/content').free/2**30,1),'GiB')
+C19_CHECKPOINT=str(stage_file('C19 checkpoint',sources['C19'],local_inputs/'C19.pt',EXPECTED_CHECKPOINT_SHA256['C19']))
+C16_CHECKPOINT=str(local_inputs/'C16.pt')
 if RUN_C16_COMPARISON:
- C16_CHECKPOINT=str(stage_file('C16 checkpoint',source_paths['C16'],Path(C16_CHECKPOINT),EXPECTED_CHECKPOINT_SHA256['C16']))
-DATASET_DIR=str(stage_dataset(source_paths['dataset'],local_inputs/'dataset'))
-VALIDATION_PANEL=str(stage_file('validation panel',source_paths['validation'],local_inputs/'panels/validation.json'))
-E25_TRAINING_PANEL=str(stage_file('E25 panel',source_paths['e25'],local_inputs/'panels/e25.json'))
-ANI_PAIRS=str(stage_file('ANI pairs',source_paths['ani_pairs'],local_inputs/'manifests/ani_pairs.tsv'))
-ANI_MEMBERSHIP=str(stage_file('ANI membership',source_paths['ani_membership'],local_inputs/'manifests/ani_membership.parquet'))
-print('Local free space after staging:',shutil.disk_usage('/content').free/2**30,'GiB')
+ C16_CHECKPOINT=str(stage_file('C16 checkpoint',sources['C16'],Path(C16_CHECKPOINT),EXPECTED_CHECKPOINT_SHA256['C16']))
+DATASET_DIR=str(stage_dataset(sources['dataset'],local_inputs/'dataset'))
+VALIDATION_PANEL=str(stage_file('validation panel',sources['validation'],local_inputs/'validation.json'))
+E25_TRAINING_PANEL=str(stage_file('E25 panel',sources['e25'],local_inputs/'e25.json'))
+ANI_PAIRS=str(stage_file('ANI pairs',sources['ani_pairs'],local_inputs/'ani_pairs.tsv'))
+ANI_MEMBERSHIP=str(stage_file('ANI membership',sources['ani_membership'],local_inputs/'ani_membership.parquet'))
+print('Local free space after staging:',round(shutil.disk_usage('/content').free/2**30,1),'GiB')
 if not TRUST_OWNED_CHECKPOINT: raise ValueError('Full-state loading requires explicit trust.')
 os.environ['TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD']='1'
 
-# Incrementally publish only files changed since the restore/stage boundary.
-synced={}
-for local_path in registry.rglob('*'):
- if local_path.is_file(): synced[str(local_path.relative_to(registry))]=(local_path.stat().st_size,local_path.stat().st_mtime_ns)
-
-drive_folder_cache={'.':drive_registry['id']}
-def ensure_drive_folder(relative):
- key=str(relative)
- if key in drive_folder_cache: return drive_folder_cache[key]
- parent_id=ensure_drive_folder(relative.parent)
- item=drive_child(parent_id,relative.name,mime_type='application/vnd.google-apps.folder',create_folder=True)
- drive_folder_cache[key]=item['id']; return item['id']
-
-def upload_drive_file(local_path,relative):
- parent_id=ensure_drive_folder(relative.parent)
- existing=[item for item in list_drive_children(parent_id)
-           if item['name']==relative.name and item['mimeType']!='application/vnd.google-apps.folder']
- if len(existing)>1: raise RuntimeError(f'Ambiguous Drive output {relative}')
- media=MediaFileUpload(str(local_path),resumable=True,chunksize=8*1024*1024)
- if existing: request=drive_api.files().update(fileId=existing[0]['id'],media_body=media,fields='id')
- else: request=drive_api.files().create(body={'name':relative.name,'parents':[parent_id]},media_body=media,fields='id')
- response=None
- while response is None: _,response=drive_retry(f'upload {relative}',request.next_chunk)
-
-def sync_registry_to_drive():
- copied=0
- for local_path in sorted(registry.rglob('*')):
-  if not local_path.is_file(): continue
-  relative=local_path.relative_to(registry); key=str(relative)
-  signature=(local_path.stat().st_size,local_path.stat().st_mtime_ns)
-  if synced.get(key)==signature: continue
-  upload_drive_file(local_path,relative)
-  synced[key]=signature; copied+=1
- print('Drive sync complete; changed files copied:',copied)
+def sync_results():
+ local_zip=Path(shutil.make_archive('/content/03q_resume','zip',root_dir=registry))
+ partial=experiment/'03q_resume.partial.zip'
+ drive_retry('upload resume ZIP',lambda:shutil.copyfile(local_zip,partial))
+ drive_retry('commit resume ZIP',lambda:os.replace(partial,resume_zip))
+ print('Saved resumable ZIP:',resume_zip,'bytes=',local_zip.stat().st_size)
 
 runner=[python,'-m','seqtrainer.torch.titans_paper_mac_stage_c.anomaly_study_cli']
 stage_c_runner=[python,'-m','seqtrainer.torch.titans_paper_mac_stage_c.colab_cli'] # seqtrainer-titans-stage-c-colab-run
@@ -264,52 +187,46 @@ if not projection.is_file() or json.loads(projection.read_text()).get('panel_con
 runtime=json.loads(projection.read_text())
 if not runtime['accepted'] or runtime['projected_hours']>MAX_C19_HOURS:
  raise RuntimeError(f"C19 projection {runtime['projected_hours']:.2f} h exceeds budget")
-sync_registry_to_drive()
+sync_results()
 print({'commit':commit,'gpu':torch.cuda.get_device_name(0),'panel':panel_manifest['panel_contract_sha256'],
        'planned_forwards':panel_manifest['planned_workload']['total_segment_forwards'],
-       'projected_hours':runtime['projected_hours'],'live_work_root':str(registry),
-       'durable_registry':f"https://drive.google.com/drive/folders/{drive_registry['id']}"})
+       'projected_hours':runtime['projected_hours'],'local_registry':str(registry)})
 '''
 
 
-EXECUTION = r'''# @title 4. Run C19 first; optionally add C16 and paired comparison later
-def run_model(model,checkpoint,max_hours=None):
- deadline=time.monotonic()+(max_hours or SYNC_CHUNK_HOURS)*3600
+EXECUTION = r'''# @title 4. Run C19; optionally add C16 later
+def run_model(model,checkpoint,max_hours):
+ deadline=time.monotonic()+max_hours*3600
  while not (bundle/model/'COMPLETE.json').is_file():
-  remaining_hours=(deadline-time.monotonic())/3600
-  if remaining_hours<=0: break
-  chunk_hours=min(SYNC_CHUNK_HOURS,remaining_hours)
+  remaining=(deadline-time.monotonic())/3600
+  if remaining<=0: break
   command=[*runner,'run-model','--model',model,'--checkpoint',checkpoint,
    '--dataset-dir',DATASET_DIR,'--validation-panel',VALIDATION_PANEL,
    '--frozen-panel',str(panel),'--output',str(bundle/model),'--device','cuda',
-   '--max-runtime-hours',str(chunk_hours),'--trust-owned-checkpoint']
+   '--max-runtime-hours',str(min(SYNC_CHUNK_HOURS,remaining)),'--trust-owned-checkpoint']
   run_checked(f'bounded_{model}',command)
-  sync_registry_to_drive()
+  sync_results()
  return (bundle/model/'COMPLETE.json').is_file()
 
 c19_complete=(bundle/'C19'/'COMPLETE.json').is_file()
 if RUN_C19 and not c19_complete: c19_complete=run_model('C19',C19_CHECKPOINT,MAX_C19_HOURS)
-if not c19_complete:
- paused=bundle/'C19'/'PAUSED.json'
- print('C19 paused safely; rerun this cell unchanged.',paused.read_text() if paused.is_file() else '')
-else:
- print('C19 complete:',bundle/'C19')
+if not c19_complete: print('C19 paused safely; rerun this cell unchanged.')
+else: print('C19 complete:',bundle/'C19')
 
 c16_complete=(bundle/'C16'/'COMPLETE.json').is_file()
 if c19_complete and RUN_C16_COMPARISON and not c16_complete:
  c16_complete=run_model('C16',C16_CHECKPOINT,MAX_C19_HOURS)
-if RUN_C16_COMPARISON and not c16_complete:
- print('C16 comparison remains incomplete; rerun later without changing the frozen panel.')
+if RUN_C16_COMPARISON and not c16_complete: print('C16 remains incomplete; rerun later unchanged.')
 
 analysis=bundle/'analysis'
 if c19_complete:
  run_checked('bounded_analyze',[*runner,'compare','--input',str(bundle),'--output',str(analysis)])
- sync_registry_to_drive()
+ sync_results()
 print({'c19_complete':c19_complete,'c16_complete':c16_complete,'analysis':str(analysis)})
 '''
 
 
-ANALYSIS = r'''# @title 5. Validate, display, and content-address the available report
+ANALYSIS = r'''# @title 5. Validate and display the report
 from IPython.display import Markdown,display
 if not (bundle/'C19'/'COMPLETE.json').is_file():
  print('No report yet: rerun cell 4 to resume C19.')
@@ -321,33 +238,25 @@ else:
   if not (analysis/required).is_file(): raise FileNotFoundError(analysis/required)
  for model in ('C19','C16'):
   if not (bundle/model/'COMPLETE.json').is_file(): continue
-  run_manifest=json.loads((bundle/model/'model_run_manifest.json').read_text())
-  if run_manifest['panel_contract_sha256'] != panel_manifest['panel_contract_sha256']:
+  manifest=json.loads((bundle/model/'model_run_manifest.json').read_text())
+  if manifest['panel_contract_sha256']!=panel_manifest['panel_contract_sha256']:
    raise RuntimeError(f'Refusing protocol-mismatched {model} result.')
- complete=json.loads((analysis/'COMPLETE.json').read_text())
- models='_'.join(complete['models'])
- archive=Path(str(analysis)+'.zip')
- archive_sha=sha256_file(archive)
- retained=analysis.parent/f"bounded_{models}_{panel_manifest['panel_contract_sha256'][:12]}_{archive_sha[:12]}.zip"
- if retained.exists():
-  if sha256_file(retained)!=archive_sha: raise RuntimeError('Archive name collision')
-  archive.unlink()
- else: archive.rename(retained)
- sync_registry_to_drive()
+ sync_results()
  display(Markdown((analysis/'SCIENTIFIC_REPORT.md').read_text()))
- print('Local content-addressed archive:',retained)
- print('Durable Drive registry:',f"https://drive.google.com/drive/folders/{drive_registry['id']}")
+ print('Durable resumable results:',resume_zip)
 '''
 
 
 notebook = {
     "cells": [cell(RATIONALE, "markdown"), cell(CONFIG), cell(PREFLIGHT), cell(EXECUTION), cell(ANALYSIS)],
     "metadata": {
-        "accelerator": "GPU", "colab": {"gpuType": "A100"},
+        "accelerator": "GPU",
+        "colab": {"gpuType": "A100"},
         "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
         "language_info": {"name": "python", "version": "3"},
     },
-    "nbformat": 4, "nbformat_minor": 5,
+    "nbformat": 4,
+    "nbformat_minor": 5,
 }
 
 OUTPUT.write_text(json.dumps(notebook, indent=1) + "\n", encoding="utf-8")

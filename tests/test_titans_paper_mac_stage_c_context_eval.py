@@ -229,16 +229,18 @@ def test_notebook_is_five_cell_bounded_c19_first_validation_study() -> None:
     assert "estimate-runtime" in source
     assert "--max-runtime-hours" in source
     assert source.index("run_model('C19'") < source.index("run_model('C16'")
-    assert "STAGE_C_FOLDER_ID='1vygqdWpiV7KDkTZLz4H_Gzc4tnz333GR'" in source
-    assert "auth.authenticate_user()" in source
-    assert "drive.mount(" not in source
-    assert "build('drive','v3',cache_discovery=False)" in source
+    assert "DRIVE_ROOT='/content/drive/MyDrive/SeqTrainerStageC'" in source
+    assert "auth.authenticate_user()" not in source
+    assert source.count("drive.mount(") == 1
+    assert "googleapiclient" not in source
     assert "LOCAL_INPUT_ROOT='/content/seqtrainer-03q-inputs'" in source
     assert "LOCAL_WORK_ROOT='/content/seqtrainer-03q-work'" in source
     assert "def stage_dataset(" in source
-    assert "def sync_registry_to_drive():" in source
+    assert "def sync_results():" in source
     assert "SYNC_CHUNK_HOURS=4.0" in source
-    assert "MediaIoBaseDownload" in source and "MediaFileUpload" in source
+    assert "03q_resume.zip" in source
+    assert "inputs/ecoli_skani_triangle.tsv" in source
+    assert "stage_c_dataset/manifests/ani99_membership.parquet" in source
     assert "RUN_LOCKED_TEST" not in source
     assert "--run-locked-test" not in source
     assert "--e25-panel" in source and "--ani-membership" in source

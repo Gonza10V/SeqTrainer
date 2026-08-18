@@ -14,5 +14,5 @@
 
 - Edit the notebook builder under `scripts/`, regenerate the `.ipynb`, and test that every generated code cell compiles. Do not hand-edit only the generated notebook.
 - Keep immutable model and dataset reads on Colab-local storage after a single staging pass. Keep high-frequency evaluator writes off Google Drive.
-- For 03q, mount Drive once and persist only the atomic `03q_resume.zip` at chunk boundaries. The verified ANI inputs are `inputs/ecoli_skani_triangle.tsv` and `stage_c_dataset/manifests/ani99_membership.parquet` under `SeqTrainerStageC`.
+- For 03q, mount Drive once and persist validated current/previous resume ZIP generations at stage boundaries and after each one-hour model session. The verified ANI inputs are `inputs/ecoli_skani_triangle.tsv` and `stage_c_dataset/manifests/ani99_membership.parquet` under `SeqTrainerStageC`.
 - Before reporting a Drive-side diagnostic, check whether execution reached the first persistence point. An absent resume ZIP means there will be no Drive log to inspect.

@@ -208,7 +208,7 @@ def test_atomic_resume_and_retained_artifacts_are_reproducible(tmp_path: Path) -
     assert not list(tmp_path.rglob("*.partial"))
 
 
-def test_notebook_is_five_cell_bounded_c19_first_validation_study() -> None:
+def test_notebook_is_resumable_bounded_c19_first_validation_study() -> None:
     path = Path("notebooks/titans_stage_c/03q_stage_c_c19_context_anomaly_and_needle.ipynb")
     notebook = json.loads(path.read_text(encoding="utf-8"))
     source = "".join("".join(cell["source"]) for cell in notebook["cells"])
@@ -229,7 +229,7 @@ def test_notebook_is_five_cell_bounded_c19_first_validation_study() -> None:
     ):
         assert dependency in source
     assert "'-m','pytest'" not in source
-    assert "03q imports OK" in source
+    assert "03q v2 imports OK" in source
     assert "import seqtrainer;" in source
     assert "RUN_C19=True" in source
     assert "RUN_C16_COMPARISON=False" in source
@@ -243,19 +243,33 @@ def test_notebook_is_five_cell_bounded_c19_first_validation_study() -> None:
     assert "auth.authenticate_user()" not in source
     assert source.count("drive.mount(") == 1
     assert "googleapiclient" not in source
-    assert "LOCAL_INPUT_ROOT='/content/seqtrainer-03q-inputs'" in source
-    assert "LOCAL_WORK_ROOT='/content/seqtrainer-03q-work'" in source
+    assert "LOCAL_INPUT_ROOT='/content/seqtrainer-03q-inputs-v2'" in source
+    assert "LOCAL_WORK_ROOT='/content/seqtrainer-03q-work-v2'" in source
     assert "def stage_dataset(" in source
-    assert "def sync_results():" in source
-    assert "SYNC_CHUNK_HOURS=4.0" in source
-    assert "03q_resume.zip" in source
+    assert "ResumeArchiveManager" in source
+    assert "def persist(" in source
+    assert "MODEL_SYNC_HOURS=1.0" in source
+    assert "03q_resume_v2" in source
+    assert "archive_manager.current" in source
+    assert "archive_manager.previous" in source
+    assert "persist('environment_ready')" in source
+    assert "persist('inputs_ready'" in source
+    assert "persist('panel_frozen'" in source
+    assert "persist('runtime_accepted'" in source
+    assert "persist(status='failed'" in source
+    assert "c19_accumulated_hours" in source
+    assert "c19_bounded_anomaly_needle_v2" in source
+    assert "canonical_selection" in source
     assert "inputs/ecoli_skani_triangle.tsv" in source
     assert "stage_c_dataset/manifests/ani99_membership.parquet" in source
     assert "RUN_LOCKED_TEST" not in source
     assert "--run-locked-test" not in source
     assert "--e25-panel" in source and "--ani-membership" in source
-    assert "2e869da44c2fb00c93101f72dfe7a88074fb4e2c" in source
+    assert "a065ef25aa65393af02e79e7de58157270df9c0f" in source
     assert "REPLACE_WITH_EVALUATOR_COMMIT" not in source
+    preparation_source = "".join(notebook["cells"][3]["source"])
+    assert preparation_source.index("bounded_freeze") < preparation_source.index("A100")
+    assert "C19_CHECKPOINT" in preparation_source
     for index, cell in enumerate(notebook["cells"]):
         if cell["cell_type"] == "code":
             compile("".join(cell["source"]), f"03q-cell-{index}", "exec")

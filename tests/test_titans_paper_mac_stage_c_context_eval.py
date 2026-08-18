@@ -16,8 +16,10 @@ from seqtrainer.torch.titans_paper_mac_stage_c.context_eval import (
     boundary_metrics,
     context_conflict,
     detection_metrics,
+    is_canonical_dna,
     materialize_anomaly_sequences,
     materialize_needle_sequence,
+    needle_cases_for_host,
     needle_metrics,
     paired_host_bootstrap,
     select_anomaly_cases,
@@ -140,6 +142,79 @@ def test_needle_cases_are_unique_natural_and_cover_smoke_grid() -> None:
     assert association_occurrences(
         crowded_sequence, crowded.key_tokens, crowded.value_tokens
     ) == [crowded.write_segment * 32, crowded.query_segment * 32]
+
+
+def test_needle_distractors_skip_n_bearing_tail_candidates() -> None:
+    tokenizer = SeqTrainerBaseTokenizer()
+
+    def stream(identity: str, *, key: list[int], tail_n: bool = False) -> TokenStreamSlice:
+        tokens = [2, 3, 4, 5] * (42 * 8) + [2]
+        write = 16 * 32
+        tokens[write : write + 6] = key
+        for index in range(len(tokens) - 5):
+            if index != write and tokens[index : index + 6] == key:
+                tokens[index] = 5 if tokens[index] != 5 else 4
+        if tail_n:
+            tokens[-1] = 1
+        values = tuple(tokens)
+        return TokenStreamSlice(
+            identity, identity, f"ani99:{identity}", values, (1,) * len(values),
+            tokenizer.decode(values),
+        )
+
+    host = stream("host", key=[2, 2, 3, 3, 4, 4], tail_n=True)
+    wrong = stream("wrong", key=[2, 2, 3, 3, 4, 4])
+    config = ContextEvalConfig(
+        hosts=1, insertion_segments=(1,), needle_distances=(3,),
+        distractor_counts=(16,), gc_tolerance=0.20,
+    )
+    case = needle_cases_for_host(host, (host, wrong), config)[0]
+    sequence = materialize_needle_sequence(case, {host.stream_id: host, wrong.stream_id: wrong})
+    assert 1 not in sequence
+    assert is_canonical_dna(tokenizer.decode(sequence))
+
+
+def test_needle_selection_falls_back_and_skips_noncanonical_wrong_host() -> None:
+    tokenizer = SeqTrainerBaseTokenizer()
+    count = 42 * 32 + 1
+
+    def stream(identity: str, tokens: list[int]) -> TokenStreamSlice:
+        values = tuple(tokens)
+        return TokenStreamSlice(
+            identity, identity, f"ani99:{identity}", values, (1,) * len(values),
+            tokenizer.decode(values),
+        )
+
+    good_tokens = [2, 3, 4, 5] * (42 * 8) + [2]
+    write = 16 * 32
+    pattern = [2, 2, 3, 3, 4, 4]
+    good_tokens[write : write + 6] = pattern
+    for index in range(len(good_tokens) - 5):
+        if index != write and good_tokens[index : index + 6] == pattern:
+            good_tokens[index] = 5 if good_tokens[index] != 5 else 4
+    bad_tokens = list(good_tokens)
+    bad_pattern = [2, 3, 4, 5, 2, 2]
+    bad_tokens[write : write + 6] = bad_pattern
+    for index in range(len(bad_tokens) - 5):
+        if index != write and bad_tokens[index : index + 6] == bad_pattern:
+            bad_tokens[index] = 5 if bad_tokens[index] != 5 else 4
+    bad_tokens[-1] = 1  # The only token outside the natural key is noncanonical.
+    wrong_n_tokens = [2] * count
+    wrong_n_tokens[10] = 1
+    canonical_wrong_tokens = [2] * count
+    good = stream("good", good_tokens)
+    bad = stream("bad", bad_tokens)
+    wrong_n = stream("wrong-n", wrong_n_tokens)
+    canonical_wrong = stream("wrong-canonical", canonical_wrong_tokens)
+    config = ContextEvalConfig(
+        hosts=1, insertion_segments=(1,), needle_distances=(3,),
+        distractor_counts=(16,), gc_tolerance=0.20,
+    )
+    with pytest.raises(ValueError, match="distractor"):
+        needle_cases_for_host(bad, (bad, wrong_n, canonical_wrong), config)
+    cases = select_needle_cases((bad, wrong_n, canonical_wrong, good), config)
+    assert {case.host_stream_id for case in cases} == {"good"}
+    assert {case.wrong_host_stream_id for case in cases} == {"wrong-canonical"}
 
 
 def test_detection_boundary_bootstrap_and_needle_statistics() -> None:

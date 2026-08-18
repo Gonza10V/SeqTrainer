@@ -200,11 +200,18 @@ def _log_probability(logits: torch.Tensor, targets: Sequence[int], positions: Se
     return sum(values), rank, reciprocal, exact
 
 
-def _run_needle_case(case, streams, model, device) -> list[dict[str, object]]:
-    sequence = materialize_needle_sequence(case, streams)
+def _run_needle_case(
+    case, streams, model, device, *, sequence_tokens=None, wrong_host_tokens=None
+) -> list[dict[str, object]]:
+    sequence = (
+        tuple(map(int, sequence_tokens))
+        if sequence_tokens is not None
+        else materialize_needle_sequence(case, streams)
+    )
     wrong = streams[case.wrong_host_stream_id]
+    wrong_tokens = wrong.token_ids if wrong_host_tokens is None else tuple(map(int, wrong_host_tokens))
     carried = _warm(model, sequence, case.query_segment, stream_id=case.host_stream_id, device=device)
-    wrong_state = _warm(model, wrong.token_ids, case.query_segment, stream_id=wrong.stream_id, device=device)
+    wrong_state = _warm(model, wrong_tokens, case.query_segment, stream_id=wrong.stream_id, device=device)
     write = case.write_segment * 32
     absent_sequence = list(sequence)
     replacement = (int(absent_sequence[write]) + 1) % model.config.vocab_size

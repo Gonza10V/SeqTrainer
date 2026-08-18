@@ -35,7 +35,8 @@ from .checkpoints import checkpoint_parent_dataset_fingerprint
 from .config import MemoryMode, StageCModelConfig
 from .context_eval import (
     CaseResumeStore, ContextEvalConfig, NeedleCase, contract_hash as legacy_contract_hash,
-    materialize_needle_sequence, select_needle_cases, write_jsonl, write_sequence_slices,
+    needle_case_bundle_for_host,
+    write_jsonl, write_sequence_slices,
 )
 from .context_eval_cli import _load_checkpoint, _run_needle_case, _score_segments, _slices, _tokenizer, _warm
 from .model import StageCPaperMACForCausalLM, detach_stream_states
@@ -74,35 +75,47 @@ def freeze(args: argparse.Namespace) -> Path:
         else ScientificStudyConfig.bounded() if args.mode == "bounded"
         else ScientificStudyConfig()
     )
-    dataset = TokenStreamDataset(args.dataset_dir, verify_checksums=True)
     validation = StageCPanelManifest.from_path(args.validation_panel)
     training = StageCPanelManifest.from_path(args.e25_panel)
-    validate_panel_against_dataset(validation, dataset)
-    validate_panel_against_dataset(training, dataset)
     if validation.payload["role"] != "validation" or training.payload["role"] != "train":
         raise ValueError("03q requires a validation host panel and the exact E25 training donor panel")
-    output = args.output
-    existing_manifest = output / "frozen_panel_manifest.json"
+    final_output = args.output
+    input_contract = {
+        "study_version": STUDY_VERSION,
+        "mode": config.mode,
+        "dataset_manifest_sha256": sha256_file(args.dataset_dir / "token_stream_manifest.json"),
+        "validation_panel_sha256": validation.hash,
+        "e25_training_panel_sha256": training.hash,
+        "ani_pairs_sha256": sha256_file(args.ani_pairs),
+        "ani_membership_sha256": sha256_file(args.ani_membership),
+    }
+    existing_manifest = final_output / "frozen_panel_manifest.json"
     if existing_manifest.is_file():
         existing = json.loads(existing_manifest.read_text())
-        expected = {
-            "mode": config.mode,
-            "dataset_manifest_sha256": sha256_file(args.dataset_dir / "token_stream_manifest.json"),
-            "validation_panel_sha256": validation.hash,
-            "e25_training_panel_sha256": training.hash,
-            "ani_pairs_sha256": sha256_file(args.ani_pairs),
-            "ani_membership_sha256": sha256_file(args.ani_membership),
-        }
-        if any(existing.get(key) != value for key, value in expected.items()):
+        if any(existing.get(key) != value for key, value in input_contract.items()):
             raise ValueError("existing frozen panel has a different immutable input contract")
-        if sha256_file(output / "token_arrays.npz") != existing.get("token_arrays_sha256"):
-            raise ValueError("existing frozen token arrays changed")
-        return output
+        artifacts = existing.get("artifact_sha256", {})
+        if not artifacts or any(
+            not (final_output / name).is_file()
+            or sha256_file(final_output / name) != digest
+            for name, digest in artifacts.items()
+        ):
+            raise ValueError("existing frozen panel artifact changed or is missing")
+        return final_output
+
+    dataset = TokenStreamDataset(args.dataset_dir, verify_checksums=True)
+    validate_panel_against_dataset(validation, dataset)
+    validate_panel_against_dataset(training, dataset)
     tokenizer_name = json.loads((args.dataset_dir / "token_stream_manifest.json").read_text())["tokenizer"]["name"]
     tokenizer = _tokenizer(tokenizer_name)
     hosts = _slices(dataset, validation, "val", tokenizer.decode)
     donors = _slices(dataset, training, "train", tokenizer.decode)
     groups = _read_membership(args.ani_membership)
+    needle_config = ContextEvalConfig(
+        hosts=config.hosts, insertion_segments=(1,), needle_distances=config.needle_distances,
+        distractor_counts=config.needle_distractors, warmup_segments=16,
+        recovery_segments=16, gc_tolerance=config.gc_tolerance,
+    )
     eligible_host_accessions = {
         value.accession for value in hosts.values()
         if canonical_host_calibration_start(value, config) is not None
@@ -112,44 +125,81 @@ def freeze(args: argparse.Namespace) -> Path:
         key=lambda value: contract_hash({"seed": config.seed, "accession": value}),
     )
     donor_accessions = sorted({value.accession for value in donors.values()})
-    # Eligibility is determined before truncating to the requested host count.
-    selected_pairs = []
+    ani = _read_ani(args.ani_pairs)
+    selected_pairs, selection_rejections, needle_bundles = [], [], {}
     for host in ordered_hosts:
         try:
-            selected_pairs.extend(choose_relative_donors([host], donor_accessions, _read_ani(args.ani_pairs), groups))
-        except ValueError:
+            pair = choose_relative_donors([host], donor_accessions, ani, groups)[0]
+            host_stream = sorted(
+                (
+                    value for value in hosts.values()
+                    if value.accession == host
+                    and canonical_host_calibration_start(value, config) is not None
+                ),
+                key=lambda value: (
+                    -value.complete_segments, value.stream_id,
+                    canonical_host_calibration_start(value, config),
+                ),
+            )[0]
+            needle_bundles[host] = needle_case_bundle_for_host(
+                host_stream, tuple(hosts.values()), needle_config
+            )
+        except (IndexError, ValueError) as error:
+            selection_rejections.append({"host_accession": host, "reason": str(error)})
             continue
+        selected_pairs.append(pair)
         if len(selected_pairs) == config.hosts:
             break
     if len(selected_pairs) != config.hosts:
-        raise ValueError(f"only {len(selected_pairs)} validation hosts satisfy the frozen donor contract")
+        raise ValueError(
+            f"only {len(selected_pairs)} validation hosts satisfy the joint canonical contract; "
+            f"rejections={selection_rejections[:8]}"
+        )
     selected_accessions = {pair.host_accession for pair in selected_pairs}
     selected_streams = [value for value in hosts.values() if value.accession in selected_accessions]
     cases, arrays, calibration = freeze_anomaly_panel(
         selected_streams, tuple(donors.values()), selected_pairs, config
     )
     frozen_host_stream_ids = {case.host_stream_id for case in cases}
-    needle_streams = [value for value in selected_streams if value.stream_id in frozen_host_stream_ids]
-    needle_config = ContextEvalConfig(
-        hosts=config.hosts, insertion_segments=(1,), needle_distances=config.needle_distances,
-        distractor_counts=config.needle_distractors, warmup_segments=16,
-        recovery_segments=16, gc_tolerance=config.gc_tolerance,
+    needle_streams = sorted(
+        (value for value in selected_streams if value.stream_id in frozen_host_stream_ids),
+        key=lambda value: contract_hash({"seed": needle_config.seed + 1, "stream_id": value.stream_id}),
     )
-    needle_cases = select_needle_cases(needle_streams, needle_config)
+    needle_cases = tuple(case for host in needle_streams for case in needle_bundles[host.accession][0])
+    host_lookup = {value.stream_id: value for value in hosts.values()}
     needle_arrays = {
-        f"{case.case_id}|needle": materialize_needle_sequence(
-            case, {value.stream_id: value for value in needle_streams}
-        ) for case in needle_cases
+        f"{case_id}|needle": sequence
+        for host in needle_streams
+        for case_id, sequence in needle_bundles[host.accession][1].items()
     }
-    output.mkdir(parents=True, exist_ok=True)
+    wrong_arrays = {}
+    wrong_segments = max(max(config.depths) - config.pre_segments, 0)
+    for case in cases:
+        wrong = host_lookup[case.wrong_host_stream_id]
+        wrong_arrays[f"{case.case_id}|wrong_host_warmup"] = tuple(
+            wrong.token_ids[:wrong_segments * 32]
+        )
+    for case in needle_cases:
+        wrong = host_lookup[case.wrong_host_stream_id]
+        wrong_arrays[f"{case.case_id}|wrong_host_warmup"] = tuple(
+            wrong.token_ids[:case.query_segment * 32]
+        )
+    frozen_arrays = {
+        **arrays, **needle_arrays, **wrong_arrays,
+        **{f"native|{key}": value for key, value in calibration.items()},
+    }
+    output = final_output.with_name(final_output.name + ".partial")
+    if output.exists():
+        shutil.rmtree(output)
+    if final_output.exists():
+        shutil.rmtree(final_output)
+    output.mkdir(parents=True)
     write_jsonl(output / "anomaly_cases.jsonl", (case.to_dict() for case in cases))
     write_jsonl(output / "needle_cases.jsonl", (case.to_dict() for case in needle_cases))
     pd.DataFrame([case.to_dict() for case in cases]).to_parquet(output / "anomaly_cases.parquet", index=False)
     pd.DataFrame([case.to_dict() for case in needle_cases]).to_parquet(output / "needle_cases.parquet", index=False)
-    _write_npz(output / "token_arrays.npz", {**arrays, **needle_arrays,
-               **{f"native|{key}": value for key, value in calibration.items()}})
-    retained = [(key, tokenizer.decode(value)) for key, value in {**arrays, **needle_arrays}.items()]
-    retained.extend((f"native|{key}", tokenizer.decode(value)) for key, value in calibration.items())
+    _write_npz(output / "token_arrays.npz", frozen_arrays)
+    retained = [(key, tokenizer.decode(value)) for key, value in frozen_arrays.items()]
     noncanonical = {
         key: sorted(set(dna.upper()) - set("ACGT"))
         for key, dna in retained if set(dna.upper()) - set("ACGT")
@@ -163,32 +213,52 @@ def freeze(args: argparse.Namespace) -> Path:
             actual = hashlib.sha256(retained_lookup[f"{case.case_id}|{label}"].encode("ascii")).hexdigest()
             if actual != expected:
                 raise ValueError(f"retained DNA identity mismatch for {case.case_id}/{label}")
+        actual_wrong = hashlib.sha256(
+            retained_lookup[f"{case.case_id}|wrong_host_warmup"].encode("ascii")
+        ).hexdigest()
+        if actual_wrong != case.wrong_host_warmup_sha256:
+            raise ValueError(f"retained wrong-host identity mismatch for {case.case_id}")
+    for case in needle_cases:
+        for label, expected in case.retained_slice_sha256.items():
+            retained_label = "needle" if label == "needle_window" else label
+            actual = hashlib.sha256(
+                retained_lookup[f"{case.case_id}|{retained_label}"].encode("ascii")
+            ).hexdigest()
+            if actual != expected:
+                raise ValueError(f"retained needle identity mismatch for {case.case_id}/{label}")
     write_sequence_slices(output / "retained_sequences.fasta.gz", retained)
+    artifact_names = (
+        "anomaly_cases.jsonl", "needle_cases.jsonl", "anomaly_cases.parquet",
+        "needle_cases.parquet", "token_arrays.npz", "retained_sequences.fasta.gz",
+    )
     manifest = {
-        "format_version": 1, "study_version": STUDY_VERSION, "mode": config.mode,
+        **input_contract, "format_version": 2,
+        "study_version": STUDY_VERSION, "mode": config.mode,
         "config": config.to_dict(), "analysis_contract": analysis_contract(),
         "planned_workload": planned_segment_forwards(config),
-        "dataset_manifest_sha256": sha256_file(args.dataset_dir / "token_stream_manifest.json"),
-        "validation_panel_sha256": validation.hash, "e25_training_panel_sha256": training.hash,
-        "ani_pairs_sha256": sha256_file(args.ani_pairs),
-        "ani_membership_sha256": sha256_file(args.ani_membership),
         "hosts": sorted(selected_accessions), "donor_pairs": [pair.__dict__ for pair in selected_pairs],
         "canonical_selection": {
-            "alphabet": "ACGT",
+            "policy_version": 2, "alphabet": "ACGT",
+            "candidate_order": "seeded_contract_hash_then_stable_token_order",
+            "distractor_policy": "same_host_canonical_equal_base_length_then_next_host",
+            "wrong_host_policy": "canonical_prefix_seeded_order",
             "evaluation_prefix_segments": (
                 max(config.depths) + max(config.lengths) + config.recovery_segments
             ),
             "native_calibration_segments": config.native_calibration_segments,
             "calibration_policy": "earliest_nonoverlapping_canonical_window",
+            "rejected_hosts": selection_rejections,
         },
         "case_list_sha256": contract_hash([case.to_dict() for case in cases]),
         "needle_list_sha256": contract_hash([case.to_dict() for case in needle_cases]),
         "token_arrays_sha256": sha256_file(output / "token_arrays.npz"),
+        "artifact_sha256": {name: sha256_file(output / name) for name in artifact_names},
         "test_panel": "not accepted by this workflow",
     }
     manifest["panel_contract_sha256"] = contract_hash(manifest)
     _atomic_json(output / "frozen_panel_manifest.json", manifest)
-    return output
+    os.replace(output, final_output)
+    return final_output
 
 
 def estimate_runtime(args: argparse.Namespace) -> Path:
@@ -354,11 +424,11 @@ def run_model(args: argparse.Namespace) -> Path:
             return output
         if not store.completed(case.case_id):
             host = stream_lookup[case.host_stream_id]
-            wrong = next(value for value in sorted(stream_lookup.values(), key=lambda item: item.stream_id)
-                         if value.accession != host.accession and value.complete_segments >= case.insertion_depth)
+            wrong = stream_lookup[case.wrong_host_stream_id]
             scoring_start = case.insertion_depth - int(panel_manifest["config"]["pre_segments"])
             carried = _warm(model, host.token_ids, scoring_start, stream_id=host.stream_id, device=device)
-            wrong_state = _warm(model, wrong.token_ids, scoring_start, stream_id=wrong.stream_id, device=device)
+            wrong_tokens = arrays[f"{case.case_id}|wrong_host_warmup"].tolist()
+            wrong_state = _warm(model, wrong_tokens, scoring_start, stream_id=wrong.stream_id, device=device)
             rows = []
             for sequence_class in (f"foreign_{case.donor_distance}", "same_host", "untouched"):
                 tokens = arrays[f"{case.case_id}|{sequence_class}"].tolist()
@@ -426,7 +496,11 @@ def run_model(args: argparse.Namespace) -> Path:
         if should_pause("needle", case.case_id):
             return output
         if not store.completed(case.case_id):
-            store.commit(case.case_id, {"rows": _run_needle_case(case, stream_lookup, model, device)})
+            store.commit(case.case_id, {"rows": _run_needle_case(
+                case, stream_lookup, model, device,
+                sequence_tokens=arrays[f"{case.case_id}|needle"].tolist(),
+                wrong_host_tokens=arrays[f"{case.case_id}|wrong_host_warmup"].tolist(),
+            )})
         for row in store.load(case.case_id)["result"]["rows"]:
             needle_rows.append({"model": args.model, **case.to_dict(), **row})
     block_rows, token_rows, segment_rows = [], [], []

@@ -20,10 +20,10 @@ from typing import Iterable, Mapping, Sequence
 import numpy as np
 import pandas as pd
 
-from .context_eval import TokenStreamSlice, gc_fraction
+from .context_eval import TokenStreamSlice, gc_fraction, is_canonical_dna
 
 
-STUDY_VERSION = "c16_c19_anomaly_needle_v2"
+STUDY_VERSION = "c16_c19_anomaly_needle_v3"
 C16_SHA256 = "21898362291f4fd1e6aafcfbe47e8b05dbe69e5c8036e6ae7927a6ac24ac4541"
 C19_SHA256 = "07fb2069b1f29a76898a90d8dfb899c5ca46cb90608fac45bc0ddff9876dbd1a"
 CHECKPOINT_SHA256 = {"C16": C16_SHA256, "C19": C19_SHA256}
@@ -315,6 +315,8 @@ class FrozenAnomalyCase:
     case_id: str
     host_stream_id: str
     host_accession: str
+    wrong_host_stream_id: str
+    wrong_host_warmup_sha256: str
     donor_stream_id: str
     donor_accession: str
     donor_distance: str
@@ -358,7 +360,7 @@ def _token_dna(stream: TokenStreamSlice, start_token: int, end_token: int) -> st
 
 
 def _canonical_dna(value: str) -> bool:
-    return bool(value) and set(value.upper()) <= set("ACGT")
+    return is_canonical_dna(value)
 
 
 def canonical_host_calibration_start(
@@ -467,6 +469,19 @@ def freeze_anomaly_panel(
         host, calibration_start = sorted(
             eligible, key=lambda value: (-value[0].complete_segments, value[0].stream_id, value[1])
         )[0]
+        wrong_segments = max(max(config.depths) - config.pre_segments, 0)
+        wrong = next(
+            (
+                stream for stream in sorted(host_streams, key=lambda value: value.stream_id)
+                if stream.accession != host.accession
+                and stream.complete_segments >= wrong_segments
+                and _canonical_dna(stream.base_block(0, wrong_segments))
+            ),
+            None,
+        )
+        if wrong is None:
+            raise ValueError(f"host {host_accession} has no canonical wrong-host warmup")
+        wrong_dna = wrong.base_block(0, wrong_segments)
         calibration[host_accession] = tuple(host.token_ids[
             calibration_start * SEGMENT_TOKENS:
             (calibration_start + config.native_calibration_segments) * SEGMENT_TOKENS + 1
@@ -529,6 +544,8 @@ def freeze_anomaly_panel(
                 case = FrozenAnomalyCase(
                     case_id="anomaly_" + hashlib.sha256(identity.encode()).hexdigest()[:20],
                     host_stream_id=host.stream_id, host_accession=host_accession,
+                    wrong_host_stream_id=wrong.stream_id,
+                    wrong_host_warmup_sha256=hashlib.sha256(wrong_dna.encode("ascii")).hexdigest(),
                     donor_stream_id=donor.stream_id, donor_accession=donor_accession,
                     donor_distance=distance, donor_ani=donor_ani, insertion_depth=depth,
                     length_segments=length, donor_start_segment=donor_start,
@@ -546,6 +563,7 @@ def freeze_anomaly_panel(
                         "donor_fragment": _coordinate_hash(donor, donor_start, length),
                         "same_host_fragment": _coordinate_hash(host, same_start, length),
                         "native_calibration": _coordinate_hash(host, calibration_start, config.native_calibration_segments),
+                        "wrong_host_warmup": _coordinate_hash(wrong, 0, wrong_segments),
                     },
                 )
                 cases.append(case)

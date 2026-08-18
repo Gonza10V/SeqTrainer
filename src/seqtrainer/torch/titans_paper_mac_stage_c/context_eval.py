@@ -58,6 +58,13 @@ def gc_fraction(sequence: str) -> float:
     return (sequence.count("G") + sequence.count("C")) / informative if informative else 0.0
 
 
+def is_canonical_dna(sequence: str) -> bool:
+    """Return whether a non-empty sequence contains only canonical DNA bases."""
+
+    value = str(sequence).upper()
+    return bool(value) and set(value) <= set("ACGT")
+
+
 @dataclass(frozen=True)
 class ContextEvalConfig:
     split: str = "val"
@@ -153,6 +160,18 @@ def decode_tokens_from_slice(stream: TokenStreamSlice, tokens: Sequence[int]) ->
     if missing:
         raise ValueError(f"retained stream cannot decode token IDs: {missing[:5]}")
     return "".join(pieces[int(token)] for token in tokens)
+
+
+def _token_pieces(stream: TokenStreamSlice) -> dict[int, str]:
+    pieces: dict[int, str] = {}
+    cursor = 0
+    for token, width in zip(stream.token_ids, stream.base_lengths):
+        piece = stream.dna[cursor : cursor + width]
+        cursor += width
+        prior = pieces.setdefault(int(token), piece)
+        if prior != piece:
+            raise ValueError("one token ID maps to multiple DNA strings in a retained stream")
+    return pieces
 
 
 @dataclass(frozen=True)
@@ -466,69 +485,156 @@ def association_occurrences(tokens: Sequence[int], key: Sequence[int], value: Se
 def select_needle_cases(
     streams: Sequence[TokenStreamSlice], config: ContextEvalConfig
 ) -> tuple[NeedleCase, ...]:
-    """Build natural-token key/value cases whose association is unique."""
+    """Build a deterministic canonical panel, skipping ineligible hosts."""
 
     ordered = _ordered_streams(streams, config.seed + 1)
     cases: list[NeedleCase] = []
-    selected_hosts = 0
+    rejections: list[str] = []
     for host in ordered:
-        required = config.warmup_segments + max(config.needle_distances) + 2
-        if host.complete_segments < required:
+        try:
+            cases.extend(needle_cases_for_host(host, ordered, config))
+        except ValueError as error:
+            rejections.append(f"{host.stream_id}: {error}")
             continue
-        write = config.warmup_segments * SEGMENT_TOKENS
-        key = tuple(host.token_ids[write : write + 4])
-        value = tuple(host.token_ids[write + 4 : write + 6])
-        if len(key) != 4 or len(value) != 2 or len(set(value)) == 0:
-            continue
-        if association_occurrences(host.token_ids, key, value) != [write]:
-            continue
-        wrong = next(
-            (
-                item for item in ordered
-                if item.accession != host.accession and item.complete_segments >= required
-            ),
-            None,
-        )
-        if wrong is None:
-            continue
-        valid: list[NeedleCase] = []
-        for distance in config.needle_distances:
-            # Distance counts complete segments *between* the write and query.
-            query_segment = config.warmup_segments + 1 + distance
-            for distractors in config.distractor_counts:
-                sequence = materialize_needle_sequence_values(
-                    host, query_segment=query_segment, key=key, value=value,
-                    distractor_count=distractors,
-                )
-                identity = f"{host.stream_id}|{distance}|{distractors}|{config.seed}"
-                valid.append(
-                    NeedleCase(
-                        case_id="needle_" + sha256_bytes(identity.encode())[:16],
-                        host_stream_id=host.stream_id,
-                        host_accession=host.accession,
-                        host_clade_group=host.clade_group,
-                        wrong_host_stream_id=wrong.stream_id,
-                        write_segment=config.warmup_segments,
-                        query_segment=query_segment,
-                        distance_segments=distance,
-                        distractor_count=distractors,
-                        key_tokens=key,  # type: ignore[arg-type]
-                        value_tokens=value,  # type: ignore[arg-type]
-                        sequence_sha256=sha256_bytes(np.asarray(sequence, dtype=np.int64).tobytes()),
-                        retained_slice_sha256={
-                            "needle_window": sha256_bytes(decode_tokens_from_slice(host, sequence).encode("ascii")),
-                            "wrong_host_warmup": sha256_bytes(wrong.base_block(0, query_segment).encode("ascii")),
-                        },
-                    )
-                )
-        cases.extend(valid)
-        selected_hosts += 1
-        if selected_hosts == config.hosts:
+        if len({case.host_stream_id for case in cases}) == config.hosts:
             break
     expected = config.hosts * len(config.needle_distances) * len(config.distractor_counts)
+    selected_hosts = len({case.host_stream_id for case in cases})
     if selected_hosts != config.hosts or len(cases) != expected:
-        raise ValueError(f"could not construct unique natural needle cases for {config.hosts} hosts")
+        preview = "; ".join(rejections[:8])
+        raise ValueError(
+            f"could not construct canonical natural needle cases for {config.hosts} hosts; "
+            f"selected={selected_hosts}; rejected={len(rejections)}; {preview}"
+        )
     return tuple(cases)
+
+
+def needle_case_bundle_for_host(
+    host: TokenStreamSlice,
+    streams: Sequence[TokenStreamSlice],
+    config: ContextEvalConfig,
+) -> tuple[tuple[NeedleCase, ...], dict[str, tuple[int, ...]]]:
+    """Materialize one host's complete canonical grid or fail without relaxing it."""
+
+    required = config.warmup_segments + max(config.needle_distances) + 2
+    if host.complete_segments < required:
+        raise ValueError("host is shorter than the longest needle window")
+    maximum_query = config.warmup_segments + 1 + max(config.needle_distances)
+    host_prefix = host.base_block(0, maximum_query + 1)
+    if not is_canonical_dna(host_prefix):
+        raise ValueError("host needle prefix contains noncanonical DNA")
+    write = config.warmup_segments * SEGMENT_TOKENS
+    key = tuple(host.token_ids[write : write + 4])
+    value = tuple(host.token_ids[write + 4 : write + 6])
+    if len(key) != 4 or len(value) != 2 or len(set(value)) == 0:
+        raise ValueError("host does not contain a usable natural key/value association")
+    if association_occurrences(host.token_ids, key, value) != [write]:
+        raise ValueError("host key/value association is not unique")
+    ordered = _ordered_streams(streams, config.seed + 1)
+    wrong = next(
+        (
+            item for item in ordered
+            if item.accession != host.accession
+            and item.complete_segments >= required
+            and is_canonical_dna(item.base_block(0, maximum_query))
+        ),
+        None,
+    )
+    if wrong is None:
+        raise ValueError("no canonical wrong-host warmup is available")
+    valid: list[NeedleCase] = []
+    sequences: dict[str, tuple[int, ...]] = {}
+    distractor_pool = (
+        _canonical_distractor_pool(host, key, value, max(config.distractor_counts))
+        if any(config.distractor_counts) else None
+    )
+    for distance in config.needle_distances:
+        # Distance counts complete segments *between* the write and query.
+        query_segment = config.warmup_segments + 1 + distance
+        for distractors in config.distractor_counts:
+            sequence = materialize_needle_sequence_values(
+                host, query_segment=query_segment, key=key, value=value,
+                distractor_count=distractors, _distractor_pool=distractor_pool,
+            )
+            dna = decode_tokens_from_slice(host, sequence)
+            if not is_canonical_dna(dna):
+                raise ValueError(
+                    f"materialized distance={distance}/distractors={distractors} is noncanonical"
+                )
+            identity = f"{host.stream_id}|{distance}|{distractors}|{config.seed}"
+            case = NeedleCase(
+                    case_id="needle_" + sha256_bytes(identity.encode())[:16],
+                    host_stream_id=host.stream_id,
+                    host_accession=host.accession,
+                    host_clade_group=host.clade_group,
+                    wrong_host_stream_id=wrong.stream_id,
+                    write_segment=config.warmup_segments,
+                    query_segment=query_segment,
+                    distance_segments=distance,
+                    distractor_count=distractors,
+                    key_tokens=key,  # type: ignore[arg-type]
+                    value_tokens=value,  # type: ignore[arg-type]
+                    sequence_sha256=sha256_bytes(np.asarray(sequence, dtype=np.int64).tobytes()),
+                    retained_slice_sha256={
+                        "needle_window": sha256_bytes(dna.encode("ascii")),
+                        "wrong_host_warmup": sha256_bytes(
+                            wrong.base_block(0, query_segment).encode("ascii")
+                        ),
+                    },
+                )
+            valid.append(case)
+            sequences[case.case_id] = sequence
+    return tuple(valid), sequences
+
+
+def needle_cases_for_host(
+    host: TokenStreamSlice,
+    streams: Sequence[TokenStreamSlice],
+    config: ContextEvalConfig,
+) -> tuple[NeedleCase, ...]:
+    return needle_case_bundle_for_host(host, streams, config)[0]
+
+
+def _canonical_distractor_pool(
+    host: TokenStreamSlice,
+    key: Sequence[int],
+    value: Sequence[int],
+    required_values: int,
+) -> tuple[tuple[int, ...], dict[int, list[int]], list[tuple[int, int]]]:
+    pieces = _token_pieces(host)
+    canonical_tokens = {
+        token for token, piece in pieces.items() if is_canonical_dna(piece)
+    }
+    key_lengths = tuple(len(pieces[int(token)]) for token in key)
+    value_lengths = tuple(len(pieces[int(token)]) for token in value)
+    vocabulary_by_length = {
+        length: sorted(
+            token for token in canonical_tokens - set(map(int, key))
+            if len(pieces[token]) == length
+        )
+        for length in set(key_lengths)
+    }
+    distinct_values: list[tuple[int, int]] = []
+    seen_values: set[tuple[int, int]] = set()
+    for index in range(0, len(host.token_ids) - 1):
+        candidate = tuple(map(int, host.token_ids[index:index + 2]))
+        if (
+            candidate == tuple(value)
+            or candidate in seen_values
+            or not all(token in canonical_tokens for token in candidate)
+            or tuple(len(pieces[token]) for token in candidate) != value_lengths
+        ):
+            continue
+        distinct_values.append(candidate)  # type: ignore[arg-type]
+        seen_values.add(candidate)
+        if len(distinct_values) >= required_values:
+            break
+    if (
+        any(not vocabulary_by_length[length] for length in key_lengths)
+        or not distinct_values
+    ):
+        raise ValueError("needle host lacks natural distractor keys/values")
+    return key_lengths, vocabulary_by_length, distinct_values
 
 
 def materialize_needle_sequence_values(
@@ -538,6 +644,9 @@ def materialize_needle_sequence_values(
     key: Sequence[int],
     value: Sequence[int],
     distractor_count: int,
+    _distractor_pool: tuple[
+        tuple[int, ...], dict[int, list[int]], list[tuple[int, int]]
+    ] | None = None,
 ) -> tuple[int, ...]:
     """Create one teacher-forced query with deterministic intervening associations."""
 
@@ -553,15 +662,10 @@ def materialize_needle_sequence_values(
         start = (natural_writes[0] // SEGMENT_TOKENS + 1) * SEGMENT_TOKENS
         available = max(query - start, 0)
         spacing = max(6, available // distractor_count)
-        vocabulary = sorted(set(map(int, host.token_ids)) - set(map(int, key)))
-        value_candidates = [
-            tuple(map(int, host.token_ids[index:index + 2]))
-            for index in range(0, len(host.token_ids) - 1)
-            if tuple(map(int, host.token_ids[index:index + 2])) != tuple(value)
-        ]
-        distinct_values = list(dict.fromkeys(value_candidates))
-        if not vocabulary or not distinct_values:
-            raise ValueError("needle host lacks natural distractor keys/values")
+        key_lengths, vocabulary_by_length, distinct_values = (
+            _canonical_distractor_pool(host, key, value, distractor_count)
+            if _distractor_pool is None else _distractor_pool
+        )
         for index in range(distractor_count):
             destination = start + index * spacing
             if destination + 6 > query:
@@ -570,6 +674,7 @@ def materialize_needle_sequence_values(
             # distractor has a non-target, distinct two-token value.
             distractor_key = list(map(int, key))
             position = index % len(distractor_key)
+            vocabulary = vocabulary_by_length[key_lengths[position]]
             distractor_key[position] = vocabulary[(index // len(distractor_key)) % len(vocabulary)]
             association = [*distractor_key, *distinct_values[index % len(distinct_values)]]
             sequence[destination : destination + 6] = association

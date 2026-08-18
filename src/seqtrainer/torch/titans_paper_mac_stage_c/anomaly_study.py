@@ -23,7 +23,7 @@ import pandas as pd
 from .context_eval import TokenStreamSlice, gc_fraction
 
 
-STUDY_VERSION = "c16_c19_anomaly_needle_v1"
+STUDY_VERSION = "c16_c19_anomaly_needle_v2"
 C16_SHA256 = "21898362291f4fd1e6aafcfbe47e8b05dbe69e5c8036e6ae7927a6ac24ac4541"
 C19_SHA256 = "07fb2069b1f29a76898a90d8dfb899c5ca46cb90608fac45bc0ddff9876dbd1a"
 CHECKPOINT_SHA256 = {"C16": C16_SHA256, "C19": C19_SHA256}
@@ -323,6 +323,7 @@ class FrozenAnomalyCase:
     length_segments: int
     donor_start_segment: int
     same_host_start_segment: int
+    native_calibration_start_segment: int
     donor_gc: float
     replaced_host_gc: float
     same_host_gc: float
@@ -358,6 +359,31 @@ def _token_dna(stream: TokenStreamSlice, start_token: int, end_token: int) -> st
 
 def _canonical_dna(value: str) -> bool:
     return bool(value) and set(value.upper()) <= set("ACGT")
+
+
+def canonical_host_calibration_start(
+    stream: TokenStreamSlice, config: ScientificStudyConfig
+) -> int | None:
+    """Return the earliest valid calibration window for a retained host stream.
+
+    The anomaly and longest needle both retain a prefix from token zero.  The
+    calibration window must be canonical, include the one-token scoring tail,
+    and not overlap that retained prefix.
+    """
+
+    maximum_end = max(config.depths) + max(config.lengths) + config.recovery_segments
+    calibration_segments = config.native_calibration_segments
+    if stream.complete_segments < maximum_end + calibration_segments:
+        return None
+    prefix_end_token = maximum_end * SEGMENT_TOKENS + 1
+    if not _canonical_dna(_token_dna(stream, 0, prefix_end_token)):
+        return None
+    final_start = stream.complete_segments - calibration_segments
+    for start in range(maximum_end, final_start + 1):
+        end_token = (start + calibration_segments) * SEGMENT_TOKENS + 1
+        if _canonical_dna(_token_dna(stream, start * SEGMENT_TOKENS, end_token)):
+            return start
+    return None
 
 
 def _best_gc_block(
@@ -427,16 +453,20 @@ def freeze_anomaly_panel(
     cases: list[FrozenAnomalyCase] = []
     sequences: dict[str, tuple[int, ...]] = {}
     calibration: dict[str, tuple[int, ...]] = {}
-    maximum_end = max(config.depths) + max(config.lengths) + config.recovery_segments
     for host_accession in sorted(pair_lookup):
-        eligible = [stream for stream in hosts_by_accession.get(host_accession, ())
-                    if stream.complete_segments >= maximum_end + config.native_calibration_segments]
+        eligible = [
+            (stream, calibration_start)
+            for stream in hosts_by_accession.get(host_accession, ())
+            if (calibration_start := canonical_host_calibration_start(stream, config)) is not None
+        ]
         if not eligible:
-            raise ValueError(f"host {host_accession} lacks one stream long enough for the frozen grid")
-        host = sorted(eligible, key=lambda value: (-value.complete_segments, value.stream_id))[0]
-        calibration_start = host.complete_segments - config.native_calibration_segments
-        if calibration_start < maximum_end:
-            raise ValueError(f"host {host_accession} cannot reserve 128 native segments")
+            raise ValueError(
+                f"host {host_accession} lacks a canonical evaluation prefix and "
+                f"{config.native_calibration_segments}-segment calibration window"
+            )
+        host, calibration_start = sorted(
+            eligible, key=lambda value: (-value[0].complete_segments, value[0].stream_id, value[1])
+        )[0]
         calibration[host_accession] = tuple(host.token_ids[
             calibration_start * SEGMENT_TOKENS:
             (calibration_start + config.native_calibration_segments) * SEGMENT_TOKENS + 1
@@ -467,7 +497,9 @@ def freeze_anomaly_panel(
                 donor, (donor_start, donor_gc) = donor_choice
                 same = _best_gc_block(
                     host, length, donor_gc, tolerance=config.gc_tolerance,
-                    excluded=((depth, depth + length), (calibration_start, host.complete_segments)),
+                    excluded=((depth, depth + length), (
+                        calibration_start, calibration_start + config.native_calibration_segments
+                    )),
                 )
                 if same is None:
                     raise ValueError(f"no GC-matched same-host relocation for {host_accession}/{depth}/{length}")
@@ -500,7 +532,8 @@ def freeze_anomaly_panel(
                     donor_stream_id=donor.stream_id, donor_accession=donor_accession,
                     donor_distance=distance, donor_ani=donor_ani, insertion_depth=depth,
                     length_segments=length, donor_start_segment=donor_start,
-                    same_host_start_segment=same_start, donor_gc=donor_gc,
+                    same_host_start_segment=same_start,
+                    native_calibration_start_segment=calibration_start, donor_gc=donor_gc,
                     replaced_host_gc=host_gc, same_host_gc=same_gc,
                     token_sha256={label: _token_hash(value) for label, value in arrays.items()},
                     dna_sha256={

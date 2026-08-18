@@ -25,7 +25,8 @@ from .anomaly_study import (
     CHECKPOINT_SHA256, COUNTERFACTUAL_FEATURES, MEMORY_FEATURES,
     REFERENCE_FEATURES, STUDY_VERSION,
     FrozenAnomalyCase, ScientificStudyConfig, analysis_contract,
-    add_state_changes, choose_relative_donors, contract_hash, freeze_anomaly_panel,
+    add_state_changes, canonical_host_calibration_start, choose_relative_donors, contract_hash,
+    freeze_anomaly_panel,
     classical_sequence_features, evaluation_interventions, holm_adjust, sha256_file,
     lagged_spearman, nested_leave_one_host_out, paired_effect, peak_enrichment, validate_study_grid,
     planned_segment_forwards, runtime_projection, verify_byte_identical_cases,
@@ -102,8 +103,12 @@ def freeze(args: argparse.Namespace) -> Path:
     hosts = _slices(dataset, validation, "val", tokenizer.decode)
     donors = _slices(dataset, training, "train", tokenizer.decode)
     groups = _read_membership(args.ani_membership)
+    eligible_host_accessions = {
+        value.accession for value in hosts.values()
+        if canonical_host_calibration_start(value, config) is not None
+    }
     ordered_hosts = sorted(
-        {value.accession for value in hosts.values()},
+        eligible_host_accessions,
         key=lambda value: contract_hash({"seed": config.seed, "accession": value}),
     )
     donor_accessions = sorted({value.accession for value in donors.values()})
@@ -145,8 +150,13 @@ def freeze(args: argparse.Namespace) -> Path:
                **{f"native|{key}": value for key, value in calibration.items()}})
     retained = [(key, tokenizer.decode(value)) for key, value in {**arrays, **needle_arrays}.items()]
     retained.extend((f"native|{key}", tokenizer.decode(value)) for key, value in calibration.items())
-    if any(set(dna.upper()) - set("ACGT") for _, dna in retained):
-        raise ValueError("frozen retained FASTA contains noncanonical DNA")
+    noncanonical = {
+        key: sorted(set(dna.upper()) - set("ACGT"))
+        for key, dna in retained if set(dna.upper()) - set("ACGT")
+    }
+    if noncanonical:
+        preview = dict(list(sorted(noncanonical.items()))[:8])
+        raise ValueError(f"frozen retained FASTA contains noncanonical DNA: {preview}")
     retained_lookup = dict(retained)
     for case in cases:
         for label, expected in case.dna_sha256.items():
@@ -163,6 +173,14 @@ def freeze(args: argparse.Namespace) -> Path:
         "ani_pairs_sha256": sha256_file(args.ani_pairs),
         "ani_membership_sha256": sha256_file(args.ani_membership),
         "hosts": sorted(selected_accessions), "donor_pairs": [pair.__dict__ for pair in selected_pairs],
+        "canonical_selection": {
+            "alphabet": "ACGT",
+            "evaluation_prefix_segments": (
+                max(config.depths) + max(config.lengths) + config.recovery_segments
+            ),
+            "native_calibration_segments": config.native_calibration_segments,
+            "calibration_policy": "earliest_nonoverlapping_canonical_window",
+        },
         "case_list_sha256": contract_hash([case.to_dict() for case in cases]),
         "needle_list_sha256": contract_hash([case.to_dict() for case in needle_cases]),
         "token_arrays_sha256": sha256_file(output / "token_arrays.npz"),

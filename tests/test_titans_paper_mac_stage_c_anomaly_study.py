@@ -6,12 +6,14 @@ import pytest
 from seqtrainer.torch.titans_paper_mac_stage_c.anomaly_study import (
     ANOMALY_LENGTHS, BOUNDED_ANOMALY_LENGTHS, BOUNDED_NEEDLE_DISTANCES,
     INSERTION_DEPTHS, ScientificStudyConfig, analysis_contract,
-    choose_relative_donors, evaluation_interventions, exact_sign_permutation_p, holm_adjust, peak_enrichment,
-    nested_leave_one_host_out, planned_segment_forwards, robust_z, runtime_projection,
+    canonical_host_calibration_start, choose_relative_donors, evaluation_interventions,
+    exact_sign_permutation_p, holm_adjust, peak_enrichment, nested_leave_one_host_out,
+    planned_segment_forwards, robust_z, runtime_projection,
 )
 from seqtrainer.torch.titans_paper_mac_stage_c.anomaly_study_cli import (
     available_analysis_models, runtime_deadline_reached,
 )
+from seqtrainer.torch.titans_paper_mac_stage_c.context_eval import TokenStreamSlice
 
 
 def test_full_contract_is_frozen_and_excludes_test_panel() -> None:
@@ -66,6 +68,43 @@ def test_runtime_projection_uses_slower_rate_and_fails_closed() -> None:
     )
     assert refused["projected_hours"] > 22
     assert refused["accepted"] is False
+
+
+def test_canonical_host_layout_rejects_prefix_n_and_selects_middle_calibration() -> None:
+    config = ScientificStudyConfig.bounded()
+    segment_tokens = 32
+    complete_segments = 260
+    token_count = complete_segments * segment_tokens + 1
+
+    def stream(identity: str, noncanonical_positions: set[int]) -> TokenStreamSlice:
+        dna = ["A"] * token_count
+        for position in noncanonical_positions:
+            dna[position] = "N"
+        return TokenStreamSlice(
+            identity,
+            identity,
+            f"ani99:{identity}",
+            tuple([3] * token_count),
+            tuple([1] * token_count),
+            "".join(dna),
+        )
+
+    maximum_end = max(config.depths) + max(config.lengths) + config.recovery_segments
+    prefix_bad = stream("prefix-bad", {10})
+    assert canonical_host_calibration_start(prefix_bad, config) is None
+
+    tail_bad_position = (complete_segments - 1) * segment_tokens
+    tail_bad = stream("tail-bad", {tail_bad_position})
+    assert canonical_host_calibration_start(tail_bad, config) == maximum_end
+
+    no_window = stream(
+        "no-window",
+        {
+            start * segment_tokens
+            for start in range(maximum_end, complete_segments - config.native_calibration_segments + 1)
+        },
+    )
+    assert canonical_host_calibration_start(no_window, config) is None
 
 
 def test_analysis_is_c19_first_and_c16_is_optional(tmp_path) -> None:

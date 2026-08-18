@@ -85,7 +85,7 @@ class ResumeArchiveManager:
                 self.registry.mkdir(parents=True, exist_ok=True)
                 shutil.unpack_archive(archive, self.registry)
                 return archive, state
-            except (OSError, ValueError) as error:
+            except ValueError as error:
                 failures.append(f"{archive.name}: {error}")
         if failures:
             raise RuntimeError("no valid resume archive; " + "; ".join(failures))

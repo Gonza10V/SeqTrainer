@@ -23,7 +23,7 @@ import pandas as pd
 from .context_eval import TokenStreamSlice, gc_fraction, is_canonical_dna
 
 
-STUDY_VERSION = "c16_c19_anomaly_needle_v3"
+STUDY_VERSION = "c16_c19_anomaly_needle_v4"
 C16_SHA256 = "21898362291f4fd1e6aafcfbe47e8b05dbe69e5c8036e6ae7927a6ac24ac4541"
 C19_SHA256 = "07fb2069b1f29a76898a90d8dfb899c5ca46cb90608fac45bc0ddff9876dbd1a"
 CHECKPOINT_SHA256 = {"C16": C16_SHA256, "C19": C19_SHA256}

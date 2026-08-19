@@ -18,7 +18,9 @@ import pandas as pd
 import torch
 
 from seqtrainer.data.bacteria_titan import (
-    StageCPanelManifest, TokenStreamDataset, validate_panel_against_dataset,
+    StageCPanelManifest, TokenStreamDataset, build_panel_stream_cache,
+    panel_stream_ids, resolved_parent_dataset_fingerprint,
+    validate_panel_against_dataset,
 )
 
 from .anomaly_study import (
@@ -69,6 +71,41 @@ def _write_npz(path: Path, arrays: Mapping[str, Sequence[int]]) -> None:
     os.replace(partial, path)
 
 
+def build_cache(args: argparse.Namespace) -> Path:
+    """Build the exact validation/E25 token-stream cache used by panel freezing."""
+
+    selected = panel_stream_ids((args.validation_panel, args.e25_panel))
+
+    def completed(source_shard: int, cache_contract_sha256: str) -> None:
+        if args.progress_json is not None:
+            previous: dict[str, object] = {}
+            if args.progress_json.is_file():
+                previous = json.loads(args.progress_json.read_text(encoding="utf-8"))
+            shards = sorted(set(map(int, previous.get("completed_source_shards", []))) | {source_shard})
+            _atomic_json(args.progress_json, {
+                "stage": "cache_building",
+                "cache_contract_sha256": cache_contract_sha256,
+                "completed_source_shards": shards,
+            })
+
+    manifest = build_panel_stream_cache(
+        args.source_dataset,
+        args.output,
+        stream_ids=selected,
+        source_manifest_path=args.source_manifest,
+        source_index_path=args.source_index,
+        scratch_dir=args.scratch_dir,
+        chunk_completed=completed,
+    )
+    if args.expected_streams is not None and int(manifest["streams"]) != args.expected_streams:
+        raise ValueError("compact cache stream count differs from the frozen contract")
+    if args.expected_tokens is not None and int(manifest["tokens"]) != args.expected_tokens:
+        raise ValueError("compact cache token count differs from the frozen contract")
+    if args.expected_bases is not None and int(manifest["bases"]) != args.expected_bases:
+        raise ValueError("compact cache represented-base count differs from the frozen contract")
+    return args.output
+
+
 def freeze(args: argparse.Namespace) -> Path:
     config = (
         ScientificStudyConfig.full() if args.mode == "full"
@@ -88,7 +125,14 @@ def freeze(args: argparse.Namespace) -> Path:
         "e25_training_panel_sha256": training.hash,
         "ani_pairs_sha256": sha256_file(args.ani_pairs),
         "ani_membership_sha256": sha256_file(args.ani_membership),
+        "parent_dataset_fingerprint": resolved_parent_dataset_fingerprint(args.dataset_dir),
     }
+    dataset_manifest = json.loads(
+        (args.dataset_dir / "token_stream_manifest.json").read_text(encoding="utf-8")
+    )
+    if dataset_manifest.get("cache_contract_sha256"):
+        input_contract["compact_cache_manifest_sha256"] = input_contract["dataset_manifest_sha256"]
+        input_contract["cache_contract_sha256"] = dataset_manifest["cache_contract_sha256"]
     existing_manifest = final_output / "frozen_panel_manifest.json"
     if existing_manifest.is_file():
         existing = json.loads(existing_manifest.read_text())
@@ -274,6 +318,12 @@ def estimate_runtime(args: argparse.Namespace) -> Path:
     if device.type != "cuda":
         raise ValueError("runtime qualification requires CUDA")
     payload = _load_checkpoint(args.checkpoint, device, trusted=args.trust_owned_checkpoint)
+    parent_dataset_fingerprint = str(
+        panel_manifest.get("parent_dataset_fingerprint")
+        or panel_manifest.get("dataset_manifest_sha256", "")
+    )
+    if checkpoint_parent_dataset_fingerprint(payload) != parent_dataset_fingerprint:
+        raise ValueError("checkpoint and frozen panel dataset disagree")
     config = StageCModelConfig.from_dict(payload["model_config"])
     model = StageCPaperMACForCausalLM(config).to(device).eval()
     model.load_state_dict(payload["model_state"])
@@ -345,6 +395,10 @@ def runtime_deadline_reached(
 
 def run_model(args: argparse.Namespace) -> Path:
     panel_manifest = json.loads((args.frozen_panel / "frozen_panel_manifest.json").read_text())
+    for name, digest in panel_manifest.get("artifact_sha256", {}).items():
+        path = args.frozen_panel / name
+        if not path.is_file() or sha256_file(path) != digest:
+            raise ValueError(f"frozen panel artifact changed: {name}")
     if sha256_file(args.frozen_panel / "token_arrays.npz") != panel_manifest["token_arrays_sha256"]:
         raise ValueError("frozen token arrays changed")
     if args.model not in CHECKPOINT_SHA256:
@@ -401,19 +455,26 @@ def run_model(args: argparse.Namespace) -> Path:
     device = torch.device("cuda" if args.device == "auto" and torch.cuda.is_available() else
                           "cpu" if args.device == "auto" else args.device)
     payload = _load_checkpoint(args.checkpoint, device, trusted=args.trust_owned_checkpoint)
-    dataset_hash = sha256_file(args.dataset_dir / "token_stream_manifest.json")
-    if checkpoint_parent_dataset_fingerprint(payload) != dataset_hash:
+    parent_dataset_fingerprint = str(
+        panel_manifest.get("parent_dataset_fingerprint")
+        or panel_manifest.get("dataset_manifest_sha256", "")
+    )
+    if checkpoint_parent_dataset_fingerprint(payload) != parent_dataset_fingerprint:
         raise ValueError("checkpoint and frozen panel dataset disagree")
+    if (args.dataset_dir is None) != (args.validation_panel is None):
+        raise ValueError("dataset and validation-panel compatibility checks must be supplied together")
+    if args.dataset_dir is not None:
+        dataset = TokenStreamDataset(args.dataset_dir, verify_checksums=True)
+        validation = StageCPanelManifest.from_path(args.validation_panel)
+        validate_panel_against_dataset(validation, dataset)
+        if resolved_parent_dataset_fingerprint(args.dataset_dir) != parent_dataset_fingerprint:
+            raise ValueError("compatibility dataset and frozen panel parent disagree")
     config = StageCModelConfig.from_dict(payload["model_config"])
     tokenizer = _tokenizer(config.tokenizer_name)
     model = StageCPaperMACForCausalLM(config).to(device).eval()
     model.load_state_dict(payload["model_state"])
-    dataset = TokenStreamDataset(args.dataset_dir, verify_checksums=True)
-    validation = StageCPanelManifest.from_path(args.validation_panel)
-    slices = _slices(dataset, validation, "val", tokenizer.decode)
     arrays = np.load(args.frozen_panel / "token_arrays.npz")
     cases = [_case(value) for value in _read_jsonl(args.frozen_panel / "anomaly_cases.jsonl")]
-    stream_lookup = {value.stream_id: value for value in slices.values()}
     store = CaseResumeStore(output / "resume", {
         "model": args.model, "checkpoint_sha256": CHECKPOINT_SHA256[args.model],
         "panel_contract_sha256": panel_manifest["panel_contract_sha256"],
@@ -423,12 +484,17 @@ def run_model(args: argparse.Namespace) -> Path:
         if should_pause("anomaly", case.case_id):
             return output
         if not store.completed(case.case_id):
-            host = stream_lookup[case.host_stream_id]
-            wrong = stream_lookup[case.wrong_host_stream_id]
             scoring_start = case.insertion_depth - int(panel_manifest["config"]["pre_segments"])
-            carried = _warm(model, host.token_ids, scoring_start, stream_id=host.stream_id, device=device)
+            untouched_tokens = arrays[f"{case.case_id}|untouched"].tolist()
+            carried = _warm(
+                model, untouched_tokens, scoring_start,
+                stream_id=case.host_stream_id, device=device,
+            )
             wrong_tokens = arrays[f"{case.case_id}|wrong_host_warmup"].tolist()
-            wrong_state = _warm(model, wrong_tokens, scoring_start, stream_id=wrong.stream_id, device=device)
+            wrong_state = _warm(
+                model, wrong_tokens, scoring_start,
+                stream_id=case.wrong_host_stream_id, device=device,
+            )
             rows = []
             for sequence_class in (f"foreign_{case.donor_distance}", "same_host", "untouched"):
                 tokens = arrays[f"{case.case_id}|{sequence_class}"].tolist()
@@ -449,9 +515,11 @@ def run_model(args: argparse.Namespace) -> Path:
                         segment_dna = tokenizer.decode(tokens[
                             segment_index * 32:(segment_index + 1) * 32
                         ])
-                        background = host.base_block(max(0, segment_index - 8), min(8, segment_index))
+                        background = tokenizer.decode(untouched_tokens[
+                            max(0, segment_index - 8) * 32:segment_index * 32
+                        ])
                         if not background:
-                            background = host.base_block(0, 1)
+                            background = tokenizer.decode(untouched_tokens[:32])
                         rows.append({
                             "model": args.model, "benchmark": "anomaly", "case_id": case.case_id,
                             "host_accession": case.host_accession, "donor_accession": case.donor_accession,
@@ -497,7 +565,7 @@ def run_model(args: argparse.Namespace) -> Path:
             return output
         if not store.completed(case.case_id):
             store.commit(case.case_id, {"rows": _run_needle_case(
-                case, stream_lookup, model, device,
+                case, None, model, device,
                 sequence_tokens=arrays[f"{case.case_id}|needle"].tolist(),
                 wrong_host_tokens=arrays[f"{case.case_id}|wrong_host_warmup"].tolist(),
             )})
@@ -1223,6 +1291,18 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     sub = parser.add_subparsers(dest="command", required=True)
     contract = sub.add_parser("contract")
     contract.add_argument("--output", type=Path, required=True)
+    cache = sub.add_parser("build-cache")
+    cache.add_argument("--source-dataset", type=Path, required=True)
+    cache.add_argument("--source-manifest", type=Path)
+    cache.add_argument("--source-index", type=Path)
+    cache.add_argument("--validation-panel", type=Path, required=True)
+    cache.add_argument("--e25-panel", type=Path, required=True)
+    cache.add_argument("--output", type=Path, required=True)
+    cache.add_argument("--scratch-dir", type=Path)
+    cache.add_argument("--progress-json", type=Path)
+    cache.add_argument("--expected-streams", type=int)
+    cache.add_argument("--expected-tokens", type=int)
+    cache.add_argument("--expected-bases", type=int)
     panel = sub.add_parser("freeze")
     panel.add_argument("--dataset-dir", type=Path, required=True)
     panel.add_argument("--validation-panel", type=Path, required=True)
@@ -1242,8 +1322,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     run = sub.add_parser("run-model")
     run.add_argument("--model", choices=("C16", "C19"), required=True)
     run.add_argument("--checkpoint", type=Path, required=True)
-    run.add_argument("--dataset-dir", type=Path, required=True)
-    run.add_argument("--validation-panel", type=Path, required=True)
+    run.add_argument("--dataset-dir", type=Path)
+    run.add_argument("--validation-panel", type=Path)
     run.add_argument("--frozen-panel", type=Path, required=True)
     run.add_argument("--output", type=Path, required=True)
     run.add_argument("--device", default="auto")
@@ -1260,6 +1340,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "contract":
         _atomic_json(args.output, analysis_contract())
         print(args.output)
+    elif args.command == "build-cache":
+        print(build_cache(args))
     elif args.command == "freeze":
         print(freeze(args))
     elif args.command == "estimate-runtime":

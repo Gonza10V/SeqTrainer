@@ -111,6 +111,15 @@ def dataset_fingerprint(dataset_dir: str | Path) -> str:
     return sha256_file(Path(dataset_dir) / "token_stream_manifest.json")
 
 
+def resolved_parent_dataset_fingerprint(dataset_dir: str | Path) -> str:
+    """Resolve a full or compact dataset to its immutable training parent."""
+
+    manifest_path = Path(dataset_dir) / "token_stream_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    parent = manifest.get("parent_dataset_fingerprint")
+    return str(parent) if parent else sha256_file(manifest_path)
+
+
 def _assembly_levels_from_zips(zip_dir: Path) -> dict[str, str]:
     """Read NCBI Datasets assembly reports without extracting archives."""
 
@@ -735,9 +744,7 @@ def validate_panel_against_dataset(
     panel: StageCPanelManifest,
     dataset: TokenStreamDataset,
 ) -> None:
-    parent = hashlib.sha256(
-        (dataset.root / "token_stream_manifest.json").read_bytes()
-    ).hexdigest()
+    parent = resolved_parent_dataset_fingerprint(dataset.root)
     if panel.payload["parent_dataset_fingerprint"] != parent:
         raise ValueError("panel parent dataset fingerprint does not match")
     index = {item.stream_id: item for item in dataset.index}

@@ -826,6 +826,30 @@ class TokenStreamDataset:
                     raise ValueError(f"base-length shard checksum mismatch: {length_path.name}")
             self.tokens.append(np.load(token_path, mmap_mode="r", allow_pickle=False))
             self.base_lengths.append(np.load(length_path, mmap_mode="r", allow_pickle=False))
+        if verify_checksums:
+            if [int(shard["shard_index"]) for shard in self.manifest["shards"]] != list(range(len(self.tokens))):
+                raise ValueError("Stage C token shard indices are not contiguous")
+            occupied: dict[int, list[tuple[int, int, str]]] = {}
+            for item in self.index:
+                if item.shard_index >= len(self.tokens):
+                    raise ValueError(f"token stream refers to absent shard: {item.stream_id}")
+                end = item.token_offset + item.token_count
+                if end > len(self.tokens[item.shard_index]) or end > len(self.base_lengths[item.shard_index]):
+                    raise ValueError(f"token stream range exceeds its shard: {item.stream_id}")
+                observed_bases = int(
+                    self.base_lengths[item.shard_index][item.token_offset:end].sum(dtype=np.int64)
+                )
+                if observed_bases != item.base_count:
+                    raise ValueError(f"token stream represented-base count changed: {item.stream_id}")
+                occupied.setdefault(item.shard_index, []).append(
+                    (item.token_offset, end, item.stream_id)
+                )
+            for ranges in occupied.values():
+                previous_end = 0
+                for start, end, stream_id in sorted(ranges):
+                    if start < previous_end:
+                        raise ValueError(f"token stream ranges overlap: {stream_id}")
+                    previous_end = end
 
     def streams(
         self,

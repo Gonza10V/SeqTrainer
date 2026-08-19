@@ -37,9 +37,16 @@ from .stage_c_panels import (
     PANEL_FORMAT_VERSION,
     StageCPanelManifest,
     dataset_fingerprint,
+    resolved_parent_dataset_fingerprint,
     freeze_ecoli_panels,
     sha256_file,
     validate_panel_against_dataset,
+)
+from .panel_stream_cache import (
+    PANEL_STREAM_CACHE_FORMAT_VERSION,
+    build_panel_stream_cache,
+    panel_stream_ids,
+    validate_panel_stream_cache,
 )
 
 __all__ = [
@@ -83,7 +90,12 @@ __all__ = [
     "PANEL_FORMAT_VERSION",
     "StageCPanelManifest",
     "dataset_fingerprint",
+    "resolved_parent_dataset_fingerprint",
     "freeze_ecoli_panels",
     "sha256_file",
     "validate_panel_against_dataset",
+    "PANEL_STREAM_CACHE_FORMAT_VERSION",
+    "build_panel_stream_cache",
+    "panel_stream_ids",
+    "validate_panel_stream_cache",
 ]

@@ -208,10 +208,19 @@ def _run_needle_case(
         if sequence_tokens is not None
         else materialize_needle_sequence(case, streams)
     )
-    wrong = streams[case.wrong_host_stream_id]
-    wrong_tokens = wrong.token_ids if wrong_host_tokens is None else tuple(map(int, wrong_host_tokens))
+    wrong = streams[case.wrong_host_stream_id] if streams is not None else None
+    if wrong_host_tokens is None:
+        if wrong is None:
+            raise ValueError("needle execution requires frozen wrong-host tokens")
+        wrong_tokens = wrong.token_ids
+    else:
+        wrong_tokens = tuple(map(int, wrong_host_tokens))
     carried = _warm(model, sequence, case.query_segment, stream_id=case.host_stream_id, device=device)
-    wrong_state = _warm(model, wrong_tokens, case.query_segment, stream_id=wrong.stream_id, device=device)
+    wrong_state = _warm(
+        model, wrong_tokens, case.query_segment,
+        stream_id=wrong.stream_id if wrong is not None else case.wrong_host_stream_id,
+        device=device,
+    )
     write = case.write_segment * 32
     absent_sequence = list(sequence)
     replacement = (int(absent_sequence[write]) + 1) % model.config.vocab_size

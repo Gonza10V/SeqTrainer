@@ -11,7 +11,7 @@ from seqtrainer.torch.titans_paper_mac_stage_c.anomaly_study import (
     planned_segment_forwards, robust_z, runtime_projection,
 )
 from seqtrainer.torch.titans_paper_mac_stage_c.anomaly_study_cli import (
-    available_analysis_models, runtime_deadline_reached,
+    available_analysis_models, parse_args, runtime_deadline_reached,
 )
 from seqtrainer.torch.titans_paper_mac_stage_c.context_eval import TokenStreamSlice
 
@@ -122,6 +122,15 @@ def test_runtime_deadline_pauses_only_at_the_declared_boundary() -> None:
     assert runtime_deadline_reached(100.0, None, now_monotonic=10_000.0) is False
     assert runtime_deadline_reached(100.0, 2.0, now_monotonic=7_299.9) is False
     assert runtime_deadline_reached(100.0, 2.0, now_monotonic=7_300.0) is True
+
+
+def test_run_model_dataset_arguments_are_optional_compatibility_checks(tmp_path) -> None:
+    args = parse_args([
+        "run-model", "--model", "C19", "--checkpoint", str(tmp_path / "model.pt"),
+        "--frozen-panel", str(tmp_path / "panel"), "--output", str(tmp_path / "output"),
+    ])
+    assert args.dataset_dir is None
+    assert args.validation_panel is None
 
 
 def test_relative_donors_are_exact_e25_extremes_with_gap() -> None:

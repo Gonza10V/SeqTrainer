@@ -304,7 +304,7 @@ def test_notebook_is_cpu_first_resumable_bounded_c19_validation_study() -> None:
     ):
         assert dependency in source
     assert "'-m','pytest'" not in source
-    assert "03q v3 imports OK" in source
+    assert "03q v4 imports OK" in source
     assert "import seqtrainer;" in source
     assert "RUN_C19=True" in source
     assert "RUN_C16_COMPARISON=False" in source
@@ -318,13 +318,14 @@ def test_notebook_is_cpu_first_resumable_bounded_c19_validation_study() -> None:
     assert "auth.authenticate_user()" not in source
     assert source.count("drive.mount(") == 1
     assert "googleapiclient" not in source
-    assert "LOCAL_INPUT_ROOT='/content/seqtrainer-03q-inputs-v3'" in source
-    assert "LOCAL_WORK_ROOT='/content/seqtrainer-03q-work-v3'" in source
-    assert "def stage_dataset(" in source
+    assert "LOCAL_INPUT_ROOT='/content/seqtrainer-03q-inputs-v4'" in source
+    assert "LOCAL_WORK_ROOT='/content/seqtrainer-03q-work-v4'" in source
+    assert "def stage_compact_cache(" in source
+    assert "shutil.copytree" not in source
     assert "ResumeArchiveManager" in source
     assert "def persist(" in source
     assert "MODEL_SYNC_HOURS=1.0" in source
-    assert "03q_resume_v3" in source
+    assert "03q_resume_v4" in source
     assert "archive_manager.current" in source
     assert "archive_manager.previous" in source
     assert "persist('environment_ready')" in source
@@ -333,17 +334,16 @@ def test_notebook_is_cpu_first_resumable_bounded_c19_validation_study() -> None:
     assert "persist('runtime_accepted'" in source
     assert "persist(status='failed'" in source
     assert "c19_accumulated_hours" in source
-    assert "c19_bounded_anomaly_needle_v3" in source
-    assert "c16_c19_anomaly_needle_v3" in source
-    assert "PARENT_EXPERIMENT='c19_bounded_anomaly_needle_v2'" in source
+    assert "c19_bounded_anomaly_needle_v4" in source
+    assert "c16_c19_anomaly_needle_v4" in source
+    assert "PARENT_EXPERIMENT='c19_bounded_anomaly_needle_v3'" in source
     assert "canonical_selection" in source
     assert "inputs/ecoli_skani_triangle.tsv" in source
     assert "stage_c_dataset/manifests/ani99_membership.parquet" in source
     assert "RUN_LOCKED_TEST" not in source
     assert "--run-locked-test" not in source
     assert "--e25-panel" in source and "--ani-membership" in source
-    assert "e685d3de9312f1ba803e06a6283e4b7132c69681" in source
-    assert "REPLACE_WITH_EVALUATOR_COMMIT" not in source
+    assert "REPLACE_WITH_V4_EVALUATOR_COMMIT" not in source
     cpu_source = "".join(notebook["cells"][2]["source"])
     a100_source = "".join(notebook["cells"][3]["source"])
     assert "CPU PANEL GENERATION" in cpu_source and "bounded_freeze" in cpu_source
@@ -351,6 +351,13 @@ def test_notebook_is_cpu_first_resumable_bounded_c19_validation_study() -> None:
     assert "A100 REQUIRED FROM THIS CELL FORWARD" in a100_source
     assert "bounded_freeze" not in a100_source
     assert "C19_CHECKPOINT" in a100_source
+    assert "--dataset-dir" not in a100_source
+    assert "--validation-panel" not in a100_source
+    assert "stage_small_inputs()" not in a100_source
+    assert "panel_stream_cache_v1" in cpu_source
+    assert "--expected-streams','342'" in cpu_source
+    assert "--expected-tokens','11546327'" in cpu_source
+    assert "--expected-bases','67680627'" in cpu_source
     assert notebook["metadata"].get("accelerator") is None
     assert notebook["metadata"].get("colab", {}).get("gpuType") is None
     for index, cell in enumerate(notebook["cells"]):

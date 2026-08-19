@@ -6,6 +6,7 @@ import shutil
 
 import numpy as np
 import pytest
+import seqtrainer.data.bacteria_titan.panel_stream_cache as cache_module
 
 from seqtrainer.data.bacteria_titan import (
     StageCPanelManifest,
@@ -153,3 +154,25 @@ def test_interruption_preserves_completed_chunks_and_resumes(tmp_path: Path, mon
     monkeypatch.setattr(shutil, "copyfile", real_copy)
     build_panel_stream_cache(source, output, stream_ids=(ids[4], ids[0], ids[2]))
     validate_panel_stream_cache(output)
+
+
+def test_builder_opens_only_selected_source_shards(tmp_path: Path, monkeypatch) -> None:
+    source, ids = _source(tmp_path)
+    source_dataset = TokenStreamDataset(source)
+    selected = (ids[0], ids[3])
+    expected = {
+        source_dataset.index[[row.stream_id for row in source_dataset.index].index(value)].shard_index
+        for value in selected
+    }
+    opened: set[int] = set()
+    real_load = cache_module.np.load
+
+    def tracked(path, *args, **kwargs):
+        candidate = Path(path)
+        if candidate.parent == source and candidate.stem.startswith(("tokens_", "base_lengths_")):
+            opened.add(int(candidate.stem.rsplit("_", 1)[1]))
+        return real_load(path, *args, **kwargs)
+
+    monkeypatch.setattr(cache_module.np, "load", tracked)
+    build_panel_stream_cache(source, tmp_path / "selected", stream_ids=selected)
+    assert opened == expected

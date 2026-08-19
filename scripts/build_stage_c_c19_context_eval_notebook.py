@@ -17,16 +17,16 @@ def cell(source: str, kind: str = "code") -> dict[str, object]:
     return value
 
 
-RATIONALE = r"""# Stage C 03q — canonical anomaly and DNA-needle validation (v3)
+RATIONALE = r"""# Stage C 03q — query-specific resumable anomaly and DNA-needle validation (v4)
 
 ## Runtime workflow
 
-1. Open this notebook with a **CPU runtime** and run cells 2–3. Cell 3 builds the canonical panel and saves it to Drive.
+1. Open this notebook with a **CPU runtime** and run cells 2–3. Cell 3 builds the exact 342-stream cache one source shard at a time, freezes the canonical panel, and saves both to Drive.
 2. After cell 3 reports `PANEL_FROZEN`, disconnect the CPU runtime and select an **NVIDIA A100** runtime.
 3. On the A100, rerun cell 2. You may skip cell 3, or rerun it for a fast verification-only no-op. Continue with cell 4.
 4. Cell 4 requires the A100 and resumes C19 in one-hour, case-safe sessions. C16 remains optional; cell 5 displays the report.
 
-All high-frequency work stays under `/content`. Drive receives validated current/previous ZIP generations only at significant stage boundaries. Never start the A100 phase unless bootstrap reports a restored `panel_frozen` stage.
+The approximately 66 MiB compact cache stays outside the resume ZIP. Drive receives each atomic source-shard cache chunk and validated current/previous ZIP generations at stage boundaries. The A100 phase never opens either token-stream dataset. Never start it unless bootstrap reports a restored `panel_frozen` stage.
 """
 
 
@@ -34,12 +34,12 @@ CONFIG = r'''# @title 2. Configuration — safe on CPU or A100
 RUN_C19=True
 RUN_C16_COMPARISON=False
 DRIVE_ROOT='/content/drive/MyDrive/SeqTrainerStageC'
-EXPERIMENT_NAME='c19_bounded_anomaly_needle_v3'
-STUDY_VERSION='c16_c19_anomaly_needle_v3'
-PARENT_EXPERIMENT='c19_bounded_anomaly_needle_v2'
-PARENT_EVALUATOR_COMMIT='a065ef25aa65393af02e79e7de58157270df9c0f'
-LOCAL_INPUT_ROOT='/content/seqtrainer-03q-inputs-v3'
-LOCAL_WORK_ROOT='/content/seqtrainer-03q-work-v3'
+EXPERIMENT_NAME='c19_bounded_anomaly_needle_v4'
+STUDY_VERSION='c16_c19_anomaly_needle_v4'
+PARENT_EXPERIMENT='c19_bounded_anomaly_needle_v3'
+PARENT_EVALUATOR_COMMIT='e685d3de9312f1ba803e06a6283e4b7132c69681'
+LOCAL_INPUT_ROOT='/content/seqtrainer-03q-inputs-v4'
+LOCAL_WORK_ROOT='/content/seqtrainer-03q-work-v4'
 MAX_C19_HOURS=22.0
 MODEL_SYNC_HOURS=1.0
 
@@ -55,12 +55,12 @@ EXPECTED_INPUT_SHA256={
  'ani_membership':'e8c8faba9a0310e20165eeab913e65dfa0eb9e58e6a34a9d2eb89225012d9e80',
 }
 REPO_URL='https://github.com/Gonza10V/SeqTrainer.git'
-GIT_REF='e685d3de9312f1ba803e06a6283e4b7132c69681'
+GIT_REF='2b16cf75a923140c097ac2ff5e3280494980540d'
 TRUST_OWNED_CHECKPOINT=True
 '''
 
 
-BOOTSTRAP = r'''# @title 3. Common bootstrap and v3 restore — safe on CPU or A100
+BOOTSTRAP = r'''# @title 3. Common bootstrap and v4 restore — safe on CPU or A100
 from pathlib import Path
 from datetime import datetime,timezone
 from google.colab import drive
@@ -84,7 +84,7 @@ def drive_retry(label,operation):
 
 drive_retry('read Stage C root',lambda:root.stat())
 experiment=root/EXPERIMENT_NAME
-drive_retry('create v3 experiment folder',lambda:experiment.mkdir(parents=True,exist_ok=True))
+drive_retry('create v4 experiment folder',lambda:experiment.mkdir(parents=True,exist_ok=True))
 registry=Path(LOCAL_WORK_ROOT)/'validation_registry'
 registry.mkdir(parents=True,exist_ok=True)
 bundle=registry/'bounded'; panel=bundle/'frozen_panel'
@@ -96,7 +96,7 @@ subprocess.run(['git','-C',str(repo),'checkout','--detach',GIT_REF],check=True)
 commit=subprocess.check_output(['git','-C',str(repo),'rev-parse','HEAD'],text=True).strip()
 if commit!=GIT_REF: raise RuntimeError('Evaluator commit did not resolve exactly.')
 
-venv=Path('/content/seqtrainer-03q-bounded-v3')
+venv=Path('/content/seqtrainer-03q-bounded-v4')
 if not (venv/'bin/python').is_file():
  subprocess.run([sys.executable,'-m','pip','install','--quiet','virtualenv>=20.26'],check=True)
  subprocess.run([sys.executable,'-m','virtualenv','--system-site-packages',str(venv)],check=True)
@@ -110,7 +110,7 @@ smoke=subprocess.run([python,'-c',
  'import numpy,pandas,pyarrow,rdflib,requests,sbol2,scipy,sklearn,torch; '
  'import seqtrainer; import seqtrainer.torch.titans_paper_mac_stage_c.anomaly_study_cli; '
  'import seqtrainer.torch.titans_paper_mac_stage_c.resume_archive; '
- 'print("03q v3 imports OK",numpy.__version__,pandas.__version__,torch.__version__)'],
+ 'print("03q v4 imports OK",numpy.__version__,pandas.__version__,torch.__version__)'],
  text=True,capture_output=True)
 print(smoke.stdout,end='')
 if smoke.returncode: raise RuntimeError('03q environment import failed:\n'+smoke.stderr[-20000:])
@@ -129,7 +129,7 @@ BASE_CONTRACT={
  'parent':{'experiment':PARENT_EXPERIMENT,'evaluator_commit':PARENT_EVALUATOR_COMMIT},
 }
 archive_manager=ResumeArchiveManager(registry,experiment)
-restored=drive_retry('restore v3 resume archive',lambda:archive_manager.restore(expected_contract=BASE_CONTRACT))
+restored=drive_retry('restore v4 resume archive',lambda:archive_manager.restore(expected_contract=BASE_CONTRACT))
 if restored:
  restored_archive,resume_state=restored
  print('Restored:',restored_archive,'stage=',resume_state.get('stage'),'status=',resume_state.get('status'))
@@ -140,7 +140,7 @@ else:
  }
 
 STAGE_ORDER={name:index for index,name in enumerate((
- 'new','environment_ready','inputs_ready','panel_frozen','runtime_accepted',
+ 'new','environment_ready','inputs_ready','cache_building','cache_complete','panel_frozen','runtime_accepted',
  'c19_running','c19_complete','analysis_complete','c16_running','c16_complete','comparison_complete'
 ))}
 def completed_case_counts():
@@ -167,7 +167,7 @@ def persist(stage=None,status='complete',details=None):
  })
  write_resume_state(registry,resume_state)
  destination,digest=drive_retry(
-  f"publish {resume_state['stage']}",lambda:archive_manager.save('/content/03q_resume_v3')
+  f"publish {resume_state['stage']}",lambda:archive_manager.save('/content/03q_resume_v4')
  )
  print('Drive checkpoint:',destination,'sha256=',digest,'cases=',resume_state['completed_cases'])
  return digest
@@ -198,33 +198,38 @@ def stage_file(label,source,target,expected_sha=None):
  if expected_sha and sha256_file(target)!=expected_sha: raise RuntimeError(f'{label} checksum mismatch')
  return target
 
-def stage_dataset(source,target):
- source_manifest=source/'token_stream_manifest.json'
- manifest_sha=drive_retry('hash dataset manifest',lambda:sha256_file(source_manifest))
- sentinel=target/'.03q_dataset_complete.json'
- if sentinel.is_file() and json.loads(sentinel.read_text()).get('manifest_sha256')==manifest_sha:
-  return target
- target.mkdir(parents=True,exist_ok=True)
- drive_retry('copy dataset',lambda:shutil.copytree(source,target,dirs_exist_ok=True))
- if sha256_file(target/'token_stream_manifest.json')!=manifest_sha: raise RuntimeError('Dataset manifest copy mismatch')
- sentinel.write_text(json.dumps({'manifest_sha256':manifest_sha})+'\n')
- return target
-
-def stage_panel_inputs():
+def stage_small_inputs():
+ source_manifest=sources['dataset']/'token_stream_manifest.json'
+ manifest=stage_file('dataset manifest',source_manifest,local_inputs/'source_token_stream_manifest.json',EXPECTED_INPUT_SHA256['dataset_manifest'])
+ manifest_payload=json.loads(manifest.read_text())
  paths={
-  'dataset':stage_dataset(sources['dataset'],local_inputs/'dataset'),
+  'dataset_manifest':manifest,
+  'dataset_index':stage_file('dataset index',sources['dataset']/manifest_payload['index'],local_inputs/'token_stream_index.jsonl',manifest_payload['index_sha256']),
   'validation':stage_file('validation panel',sources['validation'],local_inputs/'validation.json'),
   'e25':stage_file('E25 panel',sources['e25'],local_inputs/'e25.json'),
   'ani_pairs':stage_file('ANI pairs',sources['ani_pairs'],local_inputs/'ani_pairs.tsv'),
   'ani_membership':stage_file('ANI membership',sources['ani_membership'],local_inputs/'ani_membership.parquet'),
  }
  hashes={
-  'dataset_manifest':sha256_file(paths['dataset']/'token_stream_manifest.json'),
+  'dataset_manifest':sha256_file(paths['dataset_manifest']),
   'validation_panel':sha256_file(paths['validation']),'e25_panel':sha256_file(paths['e25']),
   'ani_pairs':sha256_file(paths['ani_pairs']),'ani_membership':sha256_file(paths['ani_membership']),
  }
- if hashes!=EXPECTED_INPUT_SHA256: raise RuntimeError(f'v3 inputs differ from preserved v2 contract: {hashes}')
+ if hashes!=EXPECTED_INPUT_SHA256: raise RuntimeError(f'v4 inputs differ from the immutable v3 parent contract: {hashes}')
  return paths
+
+def stage_compact_cache(source,target):
+ from seqtrainer.data.bacteria_titan import validate_panel_stream_cache
+ manifest=validate_panel_stream_cache(source)
+ target.mkdir(parents=True,exist_ok=True)
+ names=('cache_contract.json','token_stream_index.jsonl','token_stream_manifest.json','COMPLETE.json')
+ for name in names: stage_file(f'compact cache {name}',source/name,target/name,sha256_file(source/name))
+ for shard in manifest['shards']:
+  source_chunk=source/shard['chunk']; target_chunk=target/shard['chunk']
+  for name in ('tokens.npy','base_lengths.npy','index.jsonl','chunk_manifest.json','COMPLETE.json'):
+   stage_file(f'compact {source_chunk.name}/{name}',source_chunk/name,target_chunk/name,sha256_file(source_chunk/name))
+ validate_panel_stream_cache(target)
+ return target
 
 def validate_frozen_panel():
  manifest_path=panel/'frozen_panel_manifest.json'
@@ -247,13 +252,16 @@ def validate_frozen_panel():
   or manifest.get('planned_workload',{}).get('total_segment_forwards')!=25344
   or manifest.get('canonical_selection',{}).get('alphabet')!='ACGT'
   or manifest.get('canonical_selection',{}).get('policy_version')!=2
-  or manifest.get('dataset_manifest_sha256')!=EXPECTED_INPUT_SHA256['dataset_manifest']
+  or manifest.get('parent_dataset_fingerprint')!=EXPECTED_INPUT_SHA256['dataset_manifest']
+  or not manifest.get('compact_cache_manifest_sha256')
+  or manifest.get('compact_cache_manifest_sha256')!=manifest.get('dataset_manifest_sha256')
+  or not manifest.get('cache_contract_sha256')
   or manifest.get('validation_panel_sha256')!=EXPECTED_INPUT_SHA256['validation_panel']
   or manifest.get('e25_training_panel_sha256')!=EXPECTED_INPUT_SHA256['e25_panel']
   or manifest.get('ani_pairs_sha256')!=EXPECTED_INPUT_SHA256['ani_pairs']
   or manifest.get('ani_membership_sha256')!=EXPECTED_INPUT_SHA256['ani_membership']
  ):
-  raise RuntimeError('Frozen panel is not the exact canonical bounded 03q v3 contract.')
+  raise RuntimeError('Frozen panel is not the exact canonical bounded 03q v4 contract.')
  return manifest
 
 runner=[python,'-m','seqtrainer.torch.titans_paper_mac_stage_c.anomaly_study_cli']
@@ -287,13 +295,42 @@ else:
    'Panel generation must use a CPU runtime to preserve A100 time. '
    'Switch Colab to CPU, rerun cells 2-4, and return to A100 only after PANEL_FROZEN.'
   )
- print('CPU PANEL GENERATION — staging immutable inputs locally.')
+ print('CPU PANEL GENERATION — staging small immutable metadata locally.')
  print('Local free space:',round(shutil.disk_usage('/content').free/2**30,1),'GiB')
- paths=stage_panel_inputs()
- DATASET_DIR=str(paths['dataset']); VALIDATION_PANEL=str(paths['validation'])
+ paths=stage_small_inputs()
+ VALIDATION_PANEL=str(paths['validation'])
  E25_TRAINING_PANEL=str(paths['e25']); ANI_PAIRS=str(paths['ani_pairs'])
  ANI_MEMBERSHIP=str(paths['ani_membership'])
  persist('inputs_ready',details={'cpu_runtime':runtime_name,'input_sha256':EXPECTED_INPUT_SHA256})
+ cache_drive=experiment/'panel_stream_cache_v1'
+ cache_progress=registry/'cache_building.json'
+ cache_command=[*runner,'build-cache','--source-dataset',str(sources['dataset']),
+  '--source-manifest',str(paths['dataset_manifest']),'--source-index',str(paths['dataset_index']),
+  '--validation-panel',VALIDATION_PANEL,'--e25-panel',E25_TRAINING_PANEL,
+  '--output',str(cache_drive),'--scratch-dir',str(Path(LOCAL_WORK_ROOT)/'cache_scratch'),
+  '--progress-json',str(cache_progress),'--expected-streams','342',
+  '--expected-tokens','11546327','--expected-bases','67680627']
+ cache_process=subprocess.Popen(cache_command)
+ last_completed=tuple(resume_state.get('details',{}).get('completed_source_shards',[]))
+ while cache_process.poll() is None:
+  time.sleep(5)
+  if cache_progress.is_file():
+   progress=json.loads(cache_progress.read_text())
+   completed=tuple(progress.get('completed_source_shards',[]))
+   if completed!=last_completed:
+    last_completed=completed
+    persist('cache_building',status='paused',details=progress)
+ if cache_process.returncode: raise RuntimeError(f'compact cache builder failed with {cache_process.returncode}')
+ cache_manifest=json.loads((cache_drive/'token_stream_manifest.json').read_text())
+ if len(cache_manifest['source_shard_indices'])!=7: raise RuntimeError('compact cache did not use exactly seven source shards')
+ DATASET_DIR=str(stage_compact_cache(cache_drive,local_inputs/'compact_dataset'))
+ resume_state['immutable_contract']['cache_contract_sha256']=cache_manifest['cache_contract_sha256']
+ persist('cache_complete',details={
+  'completed_source_shards':cache_manifest['source_shard_indices'],
+  'cache_contract_sha256':cache_manifest['cache_contract_sha256'],
+  'compact_streams':cache_manifest['streams'],'compact_tokens':cache_manifest['tokens'],
+  'compact_bases':cache_manifest['bases'],
+ })
  run_checked('bounded_freeze',[*runner,'freeze','--dataset-dir',DATASET_DIR,
   '--validation-panel',VALIDATION_PANEL,'--e25-panel',E25_TRAINING_PANEL,
   '--ani-pairs',ANI_PAIRS,'--ani-membership',ANI_MEMBERSHIP,
@@ -321,11 +358,7 @@ if not TRUST_OWNED_CHECKPOINT: raise ValueError('Full-state loading requires exp
 os.environ['TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD']='1'
 
 print('A100 verified:',torch.cuda.get_device_name(0))
-print('Restaging ephemeral evaluator inputs locally; the frozen panel will not be regenerated.')
-paths=stage_panel_inputs()
-DATASET_DIR=str(paths['dataset']); VALIDATION_PANEL=str(paths['validation'])
-E25_TRAINING_PANEL=str(paths['e25']); ANI_PAIRS=str(paths['ani_pairs'])
-ANI_MEMBERSHIP=str(paths['ani_membership'])
+print('The frozen panel is self-contained; no token-stream dataset will be staged or opened.')
 C19_CHECKPOINT=str(stage_file(
  'C19 checkpoint',sources['C19'],local_inputs/'C19.pt',EXPECTED_CHECKPOINT_SHA256['C19']
 ))
@@ -361,7 +394,6 @@ def run_model(model,checkpoint,max_hours):
   session_hours=min(MODEL_SYNC_HOURS,max_hours-used)
   started=time.monotonic()
   command=[*runner,'run-model','--model',model,'--checkpoint',checkpoint,
-   '--dataset-dir',DATASET_DIR,'--validation-panel',VALIDATION_PANEL,
    '--frozen-panel',str(panel),'--output',str(bundle/model),'--device','cuda',
    '--max-runtime-hours',str(session_hours),'--trust-owned-checkpoint']
   run_checked(f'bounded_{model}',command)

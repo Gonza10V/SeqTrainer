@@ -334,14 +334,15 @@ def _validate_config(config: BenchmarkConfig, source: str) -> None:
         )
 
     if config.label.source == "numeric_target_threshold":
-        if not config.label.target_field:
-            raise ConfigValidationError(
-                f"{source}: label.source='numeric_target_threshold' requires label.target_field"
-            )
-        if not config.label.threshold_strategy and config.label.threshold_value is None:
-            raise ConfigValidationError(
-                f"{source}: numeric target labels require label.threshold_strategy or label.threshold_value"
-            )
+        raise ConfigValidationError(
+            f"{source}: label.source='numeric_target_threshold' is not implemented; "
+            "use label.source='provided_binary' or 'curated_binary'."
+        )
+
+    if config.model.family == "cnn" and not config.preprocessing.pad_or_trim:
+        raise ConfigValidationError(
+            f"{source}: CNN benchmarks require preprocessing.pad_or_trim=true"
+        )
 
     missing_metrics = REQUIRED_CLASSIFICATION_METRICS.difference(config.evaluation.metrics)
     if missing_metrics:

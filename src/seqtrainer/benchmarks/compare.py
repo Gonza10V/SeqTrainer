@@ -16,6 +16,7 @@ def compare_benchmark_outputs(
 ) -> dict[str, Path]:
     """Rank benchmark artifact folders by held-out test MCC and AUPRC."""
     rows: list[dict[str, Any]] = []
+    expected_contract: str | None = None
     for artifact_dir_raw in artifact_dirs:
         artifact_dir = Path(artifact_dir_raw)
         metrics_path = artifact_dir / "metrics.csv"
@@ -24,6 +25,15 @@ def compare_benchmark_outputs(
             continue
 
         manifest = _read_json(manifest_path) if manifest_path.exists() else {}
+        contract = _comparison_contract(manifest)
+        if contract is not None:
+            if expected_contract is None:
+                expected_contract = contract
+            elif contract != expected_contract:
+                raise ValueError(
+                    "Cannot compare benchmark artifacts with different datasets or split files."
+                )
+
         status = manifest.get("status")
         if status is None:
             status = manifest.get("extra", {}).get("status")
@@ -113,6 +123,23 @@ def _summary_markdown(comparison: pd.DataFrame) -> str:
 
 def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _comparison_contract(manifest: dict[str, Any]) -> str | None:
+    """Return existing manifest metadata used to validate fair comparisons."""
+    dataset = manifest.get("dataset")
+    if not isinstance(dataset, dict):
+        return None
+    contract = {
+        "name": dataset.get("name"),
+        "version": dataset.get("version"),
+        "source_accession": dataset.get("source_accession"),
+        "source_url": dataset.get("source_url"),
+        "split_files": dataset.get("split_files"),
+    }
+    if all(value is None for value in contract.values()):
+        return None
+    return json.dumps(contract, sort_keys=True, default=str)
 
 
 def _selected_threshold(manifest: dict[str, Any]) -> Any:

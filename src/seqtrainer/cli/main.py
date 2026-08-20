@@ -177,6 +177,11 @@ def main(argv: list[str] | None = None) -> int:
                 early_stopping_patience=_optional_int(training_params.get("early_stopping_patience")),
                 model_variant=str(model_params.get("variant", "tiny")),
                 dropout=float(model_params.get("dropout", 0.25)),
+                input_channels=int(model_params.get("input_channels", 5)),
+                conv_channels=_optional_int_tuple(model_params.get("conv_channels")),
+                kernel_sizes=_optional_int_tuple(model_params.get("kernel_sizes")),
+                pooling=str(model_params["pooling"]) if model_params.get("pooling") is not None else None,
+                classifier_hidden=_optional_int(model_params.get("classifier_hidden")),
                 class_weighting=bool(training_params.get("class_weighting", False)),
                 threshold_strategy=benchmark.evaluation.threshold_strategy,
                 device=args.device or _resolve_device(benchmark.environment.device),
@@ -320,6 +325,14 @@ def _resolve_device(device: str) -> str:
         return "cuda" if torch.cuda.is_available() else "cpu"
     except ModuleNotFoundError:
         return "cpu"
+
+
+def _optional_int_tuple(value: object) -> tuple[int, ...] | None:
+    if value is None:
+        return None
+    if not isinstance(value, (list, tuple)):
+        raise ValueError("CNN architecture parameters must be TOML lists of integers")
+    return tuple(int(item) for item in value)
 
 
 def _optional_int(value: object) -> int | None:

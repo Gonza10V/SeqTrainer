@@ -239,7 +239,7 @@ def _reject_cross_split_duplicate_sequences(split_frames: dict[str, pd.DataFrame
     for split, split_frame in split_frames.items():
         for sequence in split_frame["sequence"].astype(str):
             previous_split = seen.get(sequence)
-            if previous_split is not None:
+            if previous_split is not None and previous_split != split:
                 raise ValueError(
                     "Duplicate normalized sequence appears across source splits: "
                     f"{sequence!r} occurs in {previous_split} and {split}."

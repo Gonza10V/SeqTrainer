@@ -26,6 +26,7 @@ def build_run_manifest(
     split_content_sha256 = {
         split: values.get("content_sha256")
         for split, values in split_summary_data.items()
+        if isinstance(values, dict)
     }
     manifest: dict[str, Any] = {
         "experiment": asdict(config.experiment),

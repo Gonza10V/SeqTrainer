@@ -150,7 +150,7 @@ def _run_ipromp(
     allow_skip: bool,
 ) -> BenchmarkRunResult:
     params = dict(config.model.params)
-    out_dir = Path(output_dir or config.outputs.output_dir)
+    out_dir = _resolve_output_dir(output_dir or config.outputs.output_dir, base_dir)
     predictions_csv = params.get("predictions_csv")
     validation_predictions_csv = params.get("validation_predictions_csv")
     test_predictions_csv = params.get("test_predictions_csv")
@@ -431,6 +431,14 @@ def _write_skipped_result(
     )
     write_benchmark_outputs(out_dir, manifest=manifest, config=config)
     return BenchmarkRunResult(output_dir=out_dir, status="skipped", metrics={}, manifest=manifest)
+
+
+def _resolve_output_dir(path: str | Path, base_dir: str | Path | None) -> Path:
+    """Resolve relative generated artifacts against the benchmark base directory."""
+    resolved = Path(path)
+    if resolved.is_absolute():
+        return resolved
+    return Path(base_dir or Path.cwd()) / resolved
 
 
 def _split_paths(config: BenchmarkConfig, base_dir: str | Path | None) -> dict[str, Path]:

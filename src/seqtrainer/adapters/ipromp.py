@@ -510,6 +510,7 @@ def _encode_fasta_value(value: Any) -> str:
     """Encode metadata values so FASTA pipe-delimited headers remain parseable."""
     return "url:" + quote(str(value), safe="")
 
+
 def _decode_fasta_value(value: Any) -> str:
     text = str(value)
     return unquote(text[4:]) if text.startswith("url:") else text

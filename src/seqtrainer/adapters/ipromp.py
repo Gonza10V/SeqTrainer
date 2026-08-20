@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import shlex
 from typing import Any
 from urllib.parse import quote, unquote
 
@@ -134,6 +135,7 @@ def write_ipromp_run_commands(
     max_length = int(params.get("max_length", 128))
     kmer_size = int(params.get("kmer_size", 6))
     seed = int(config.training.seed)
+    device = str(config.environment.device or "auto")
     script = out_dir / "ipromp_run_commands.sh"
     lines = [
         "#!/usr/bin/env bash",
@@ -159,7 +161,8 @@ def write_ipromp_run_commands(
                 f"  --max-length {max_length} \\",
                 f"  --kmer-size {kmer_size} \\",
                 f"  --batch-size {batch_size} \\",
-                f"  --seed {seed}",
+                f"  --seed {seed} \",
+                f"  --device {shlex.quote(device)}",
                 "",
             ]
         )

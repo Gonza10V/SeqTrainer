@@ -223,8 +223,8 @@ def split_ai_x_bio_frame(frame: pd.DataFrame, *, seed: int = 42) -> tuple[dict[s
             raise ValueError(f"Source split column is present but missing split(s): {missing}")
         return split_frames, "preserved_source_split"
 
-    train, temp = _stratified_train_test_split(frame, test_size=0.30, seed=seed)
-    validation, test = _stratified_train_test_split(temp, test_size=0.50, seed=seed)
+    train, temp = _stratified_group_train_test_split(frame, test_size=0.30, seed=seed)
+    validation, test = _stratified_group_train_test_split(temp, test_size=0.50, seed=seed)
     return {
         "train": train[["sequence", "label", "id"]].reset_index(drop=True),
         "validation": validation[["sequence", "label", "id"]].reset_index(drop=True),
@@ -283,6 +283,48 @@ def main(argv: list[str] | None = None) -> int:
     for split, path in result.split_paths.items():
         print(f"{split}={path}")
     return 0
+
+
+def _stratified_group_train_test_split(
+    frame: pd.DataFrame,
+    *,
+    test_size: float,
+    seed: int,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Split rows while keeping identical normalized sequences together."""
+    from sklearn.model_selection import train_test_split
+
+    sequence_labels = frame[["sequence", "label"]].drop_duplicates("sequence")
+    conflicting = frame.groupby("sequence")["label"].nunique(dropna=False)
+    if (conflicting > 1).any():
+        examples = conflicting[conflicting > 1].index.tolist()[:3]
+        raise ValueError(
+            "Duplicate sequences have conflicting labels and cannot be split safely: "
+            f"{examples}"
+        )
+
+    labels = sequence_labels["label"]
+    stratify = labels if labels.value_counts().min() >= 2 else None
+    try:
+        train_sequences, test_sequences = train_test_split(
+            sequence_labels["sequence"],
+            test_size=test_size,
+            random_state=seed,
+            stratify=stratify,
+        )
+    except ValueError:
+        train_sequences, test_sequences = train_test_split(
+            sequence_labels["sequence"],
+            test_size=test_size,
+            random_state=seed,
+            stratify=None,
+        )
+
+    train_set = set(train_sequences)
+    test_set = set(test_sequences)
+    train = frame[frame["sequence"].isin(train_set)]
+    test = frame[frame["sequence"].isin(test_set)]
+    return train.reset_index(drop=True), test.reset_index(drop=True)
 
 
 def _stratified_train_test_split(frame: pd.DataFrame, *, test_size: float, seed: int) -> tuple[pd.DataFrame, pd.DataFrame]:

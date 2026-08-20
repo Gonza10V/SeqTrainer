@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
-import shlex
 from typing import Any
 from urllib.parse import quote, unquote
 

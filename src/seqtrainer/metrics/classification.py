@@ -159,7 +159,8 @@ def best_threshold_by_metric(
     for threshold in candidates:
         predictions = threshold_predictions(scores, float(threshold))
         score = _threshold_metric(labels, predictions, metric_key)
-        if score > best_score:
+        neutral_tie = np.isclose(score, best_score) and abs(float(threshold) - 0.5) < abs(best_threshold - 0.5)
+        if score > best_score or neutral_tie:
             best_threshold = float(threshold)
             best_score = float(score)
 

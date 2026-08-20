@@ -1416,6 +1416,26 @@ def test_predefined_split_loader_rejects_empty_and_null_required_values(tmp_path
         load_predefined_split_frames(config, base_dir=tmp_path)
 
 
+def test_predefined_split_loader_rejects_cross_split_duplicate_sequences(tmp_path):
+    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
+    split_dir = tmp_path / "data" / "promoter_classification"
+    split_dir.mkdir(parents=True)
+    paths = {
+        "train": "train_EP_DNA_BERT2_genomic_order.csv",
+        "validation": "eval_EP_DNA_BERT2_genomic_order.csv",
+        "test": "test_EP_DNA_BERT2_genomic_order.csv",
+    }
+    for split, filename in paths.items():
+        sequence = "ACGT" if split == "train" else (" acgt " if split == "validation" else "TGCA")
+        pd.DataFrame({"sequence": [sequence], "label": [0]}).to_csv(
+            split_dir / filename,
+            index=False,
+        )
+
+    with pytest.raises(ValueError, match="duplicate normalized sequences"):
+        load_predefined_split_frames(config, base_dir=tmp_path)
+
+
 def test_artifact_writer_removes_stale_disabled_outputs(tmp_path):
     config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
     config = replace(
@@ -1443,6 +1463,38 @@ def test_artifact_writer_removes_stale_disabled_outputs(tmp_path):
         (tmp_path / name).exists()
         for name in ("config.json", "metrics.json", "metrics.csv", "history.csv", "predictions.csv")
     )
+
+
+def test_comparison_rejects_different_split_content_digest(tmp_path):
+    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
+    metrics = {"test": {"mcc": 0.2, "auprc": 0.4, "accuracy": 0.5}}
+    split_summary = {
+        split: {"rows": 2, "class_counts": {"0": 1, "1": 1}, "content_sha256": f"{split}-a"}
+        for split in ("train", "validation", "test")
+    }
+    first_manifest = build_run_manifest(config, split_summary=split_summary, threshold=0.5)
+    second_summary = {split: dict(values) for split, values in split_summary.items()}
+    second_summary["test"]["content_sha256"] = "test-b"
+    second_manifest = build_run_manifest(config, split_summary=second_summary, threshold=0.5)
+
+    write_benchmark_outputs(
+        tmp_path / "first",
+        manifest=first_manifest,
+        metrics=metrics,
+        config=config,
+    )
+    write_benchmark_outputs(
+        tmp_path / "second",
+        manifest=second_manifest,
+        metrics=metrics,
+        config=config,
+    )
+
+    with pytest.raises(ValueError, match="different datasets or split files"):
+        compare_benchmark_outputs(
+            [tmp_path / "first", tmp_path / "second"],
+            output_dir=tmp_path / "comparison",
+        )
 
 
 def test_comparison_rejects_different_dataset_metadata(tmp_path):

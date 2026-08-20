@@ -696,53 +696,80 @@ def _manifest(cfg: CnnBaselineConfig, data: dict[str, Any], metrics: dict[str, d
 
 def _csv_model_metadata(config: CnnCsvSplitConfig) -> dict[str, Any]:
     if config.model_variant == "tiny":
+        conv_channels = tuple(config.conv_channels or (32, 64))
+        kernel_sizes = tuple(config.kernel_sizes or (7, 5))
+        pooling = config.pooling or "adaptive_max"
+        classifier_hidden = config.classifier_hidden or 32
+        first, second = conv_channels
+        first_kernel, second_kernel = kernel_sizes
         return {
             "name": "TinyDNACNN",
             "variant": "tiny",
+            "configured_parameters": {
+                "input_channels": config.input_channels,
+                "conv_channels": list(conv_channels),
+                "kernel_sizes": list(kernel_sizes),
+                "pooling": pooling,
+                "classifier_hidden": classifier_hidden,
+            },
             "architecture": [
-                "Conv1d(5, 32, kernel_size=7, padding=3)",
+                f"Conv1d({config.input_channels}, {first}, kernel_size={first_kernel}, padding={first_kernel // 2})",
                 "ReLU",
                 "MaxPool1d(kernel_size=2)",
-                "Conv1d(32, 64, kernel_size=5, padding=2)",
+                f"Conv1d({first}, {second}, kernel_size={second_kernel}, padding={second_kernel // 2})",
                 "ReLU",
                 "AdaptiveMaxPool1d(1)",
                 "Flatten",
-                "Linear(64, 32)",
+                f"Linear({second}, {classifier_hidden})",
                 "ReLU",
-                "Linear(32, 2)",
+                "Linear(classifier_hidden, 2)",
             ],
         }
 
     if config.model_variant == "enhanced":
+        conv_channels = tuple(config.conv_channels or (64, 128))
+        kernel_sizes = tuple(config.kernel_sizes or (15, 7, 7, 7))
+        pooling = config.pooling or "adaptive_max_plus_avg"
+        classifier_hidden = config.classifier_hidden or 128
+        first, second = conv_channels
+        first_kernel, second_kernel, third_kernel, fourth_kernel = kernel_sizes
+        final_channels = second * 2
         return {
             "name": "EnhancedDNACNN",
             "variant": "enhanced",
             "dropout": float(config.dropout),
+            "configured_parameters": {
+                "input_channels": config.input_channels,
+                "conv_channels": list(conv_channels),
+                "kernel_sizes": list(kernel_sizes),
+                "pooling": pooling,
+                "classifier_hidden": classifier_hidden,
+            },
             "architecture": [
-                "Conv1d(5, 64, kernel_size=15, padding=7)",
-                "BatchNorm1d(64)",
+                f"Conv1d({config.input_channels}, {first}, kernel_size={first_kernel}, padding={first_kernel // 2})",
+                f"BatchNorm1d({first})",
                 "GELU",
-                "Conv1d(64, 64, kernel_size=7, padding=3)",
-                "BatchNorm1d(64)",
-                "GELU",
-                "MaxPool1d(kernel_size=2)",
-                "Dropout",
-                "Conv1d(64, 128, kernel_size=7, padding=6, dilation=2)",
-                "BatchNorm1d(128)",
-                "GELU",
-                "Conv1d(128, 128, kernel_size=7, padding=12, dilation=4)",
-                "BatchNorm1d(128)",
+                f"Conv1d({first}, {first}, kernel_size={second_kernel}, padding={second_kernel // 2})",
+                f"BatchNorm1d({first})",
                 "GELU",
                 "MaxPool1d(kernel_size=2)",
                 "Dropout",
-                "Conv1d(128, 256, kernel_size=3, padding=1)",
-                "BatchNorm1d(256)",
+                f"Conv1d({first}, {second}, kernel_size={third_kernel}, padding={third_kernel - 1}, dilation=2)",
+                f"BatchNorm1d({second})",
+                "GELU",
+                f"Conv1d({second}, {second}, kernel_size={fourth_kernel}, padding={2 * (fourth_kernel - 1)}, dilation=4)",
+                f"BatchNorm1d({second})",
+                "GELU",
+                "MaxPool1d(kernel_size=2)",
+                "Dropout",
+                f"Conv1d({second}, {final_channels}, kernel_size=3, padding=1)",
+                f"BatchNorm1d({final_channels})",
                 "GELU",
                 "AdaptiveAvgPool1d(1) + AdaptiveMaxPool1d(1)",
-                "Linear(512, 128)",
+                f"Linear({final_channels * 2}, {classifier_hidden})",
                 "GELU",
                 "Dropout",
-                "Linear(128, 2)",
+                "Linear(classifier_hidden, 2)",
             ],
         }
 

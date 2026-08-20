@@ -252,6 +252,10 @@ def test_cnn_csv_honors_output_save_flags(tmp_path):
         )
 
     output_dir = tmp_path / "outputs"
+    output_dir.mkdir()
+    for name in ("config.json", "metrics.json", "metrics.csv", "history.csv", "predictions.csv"):
+        (output_dir / name).write_text("stale", encoding="utf-8")
+
     run_cnn_csv_splits(
         CnnCsvSplitConfig(
             train_csv=tmp_path / "train.csv",

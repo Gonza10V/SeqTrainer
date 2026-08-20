@@ -149,6 +149,11 @@ def best_threshold_by_metric(
     if metric_key not in {"mcc", "f1", "balanced_accuracy"}:
         raise ValueError("metric must be one of: mcc, f1, balanced_accuracy")
 
+    if np.unique(labels).size < 2:
+        # A single-class validation split cannot identify an operating point.
+        predictions = threshold_predictions(scores, 0.5)
+        return 0.5, float(_threshold_metric(labels, predictions, metric_key))
+
     candidates = np.asarray(thresholds, dtype=float) if thresholds is not None else _default_mcc_thresholds(scores)
     best_threshold, best_score = 0.5, float("-inf")
     for threshold in candidates:

@@ -4,11 +4,13 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from seqtrainer.benchmarks.ai_x_bio import standardize_ai_x_bio_frame
+from seqtrainer.benchmarks.ai_x_bio import split_ai_x_bio_frame, standardize_ai_x_bio_frame
 from seqtrainer.adapters.ipromp import (
     build_ipromp_mapping,
     normalize_ipromp_predictions,
     _normalize_official_predictions,
+    write_ipromp_fastas,
+    write_ipromp_run_commands,
 )
 from seqtrainer.benchmarks.config import load_benchmark_config
 from seqtrainer.torch.dnabert2_benchmark import (
@@ -259,3 +261,44 @@ def test_dnabert2_scales_final_partial_accumulation_window():
     )
 
     assert model.weight.item() == pytest.approx(0.36, abs=1e-6)
+
+
+def test_ai_x_bio_unsplit_duplicates_stay_in_one_split():
+    rows = [
+        {"sequence": f"ACGT{i}", "label": i % 2, "id": str(i)}
+        for i in range(8)
+    ]
+    rows.append({"sequence": "ACGT0", "label": 0, "id": "duplicate"})
+    frames, strategy = split_ai_x_bio_frame(pd.DataFrame(rows), seed=42)
+
+    assert strategy == "seeded_stratified_group_70_15_15"
+    locations = [
+        split
+        for split, frame in frames.items()
+        if "ACGT0" in set(frame["sequence"])
+    ]
+    assert len(locations) == 1
+
+
+def test_ipromp_fasta_ids_are_encoded_and_command_preserves_kmer_size(tmp_path):
+    config = load_benchmark_config(CONFIG_PATH)
+    config = replace(
+        config,
+        dataset=replace(config.dataset, id_field="id"),
+        model=replace(
+            config.model,
+            params={**config.model.params, "kmer_size": 7},
+        ),
+    )
+    frames = {
+        split: pd.DataFrame(
+            {"sequence": ["ACGT"], "label": [0], "id": ["ref|ABC"]}
+        )
+        for split in ("train", "validation", "test")
+    }
+    mapping = build_ipromp_mapping(config, frames)
+    fasta_paths = write_ipromp_fastas(config, frames, tmp_path / "fasta", mapping=mapping)
+    command_path = write_ipromp_run_commands(config, fasta_paths, tmp_path / "run")
+
+    assert "sequence_id=url:ref%7CABC|label=0" in fasta_paths["train"].read_text()
+    assert "--kmer-size 7" in command_path.read_text()

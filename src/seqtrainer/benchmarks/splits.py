@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -56,7 +58,60 @@ def load_predefined_split_frames(
                 f"{split} split contains null values in required columns: {nullable_columns}"
             )
         frames[split] = frame
+
+    _reject_cross_split_duplicates(config, frames)
     return frames
+
+
+def _reject_cross_split_duplicates(
+    config: BenchmarkConfig,
+    frames: dict[str, pd.DataFrame],
+) -> None:
+    """Reject normalized sequences shared by different predefined splits."""
+    sequence_field = config.dataset.sequence_field
+    seen: dict[str, str] = {}
+    duplicates: list[tuple[str, str, str]] = []
+    for split, frame in frames.items():
+        normalized = (
+            frame[sequence_field]
+            .astype(str)
+            .str.strip()
+            .str.upper()
+            .str.replace(r"\s+", "", regex=True)
+        )
+        for sequence in normalized:
+            previous_split = seen.get(sequence)
+            if previous_split is not None and previous_split != split:
+                duplicates.append((sequence, previous_split, split))
+            else:
+                seen[sequence] = split
+
+    if duplicates:
+        examples = [
+            {"sequence": sequence, "splits": [left, right]}
+            for sequence, left, right in duplicates[:3]
+        ]
+        raise ValueError(
+            "Predefined splits contain duplicate normalized sequences across splits; "
+            f"examples: {examples}"
+        )
+
+
+def _split_content_sha256(config: BenchmarkConfig, frame: pd.DataFrame) -> str:
+    """Hash the ordered benchmark rows used for split comparison."""
+    columns = [config.dataset.sequence_field, config.dataset.label_field]
+    if config.dataset.id_field and config.dataset.id_field in frame:
+        columns.append(config.dataset.id_field)
+    rows = [
+        ["" if pd.isna(value) else str(value) for value in row]
+        for row in frame[columns].itertuples(index=False, name=None)
+    ]
+    payload = json.dumps(
+        {"columns": columns, "rows": rows},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def summarize_split_frames(config: BenchmarkConfig, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
@@ -79,5 +134,6 @@ def summarize_split_frames(config: BenchmarkConfig, frames: dict[str, pd.DataFra
             }
         if config.dataset.id_field and config.dataset.id_field in frame:
             split_summary["unique_ids"] = int(frame[config.dataset.id_field].nunique())
+        split_summary["content_sha256"] = _split_content_sha256(config, frame)
         summary[split] = split_summary
     return summary

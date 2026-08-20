@@ -161,7 +161,7 @@ def write_ipromp_run_commands(
                 f"  --max-length {max_length} \\",
                 f"  --kmer-size {kmer_size} \\",
                 f"  --batch-size {batch_size} \\",
-                f"  --seed {seed} \",
+                f"  --seed {seed} \\",
                 f"  --device {shlex.quote(device)}",
                 "",
             ]

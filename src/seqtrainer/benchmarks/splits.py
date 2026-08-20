@@ -44,6 +44,17 @@ def load_predefined_split_frames(
         missing = required_columns.difference(frame.columns)
         if missing:
             raise ValueError(f"{split} split is missing required columns: {sorted(missing)}")
+        if frame.empty:
+            raise ValueError(f"{split} split must contain at least one row")
+        nullable_columns = [
+            column
+            for column in (config.dataset.sequence_field, config.dataset.label_field)
+            if frame[column].isna().any()
+        ]
+        if nullable_columns:
+            raise ValueError(
+                f"{split} split contains null values in required columns: {nullable_columns}"
+            )
         frames[split] = frame
     return frames
 

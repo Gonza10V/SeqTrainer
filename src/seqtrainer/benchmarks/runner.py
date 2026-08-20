@@ -95,6 +95,11 @@ def _run_cnn(
             early_stopping_patience=_optional_int(params.get("early_stopping_patience")),
             model_variant=str(model_params.get("variant", "tiny")),
             dropout=float(model_params.get("dropout", 0.25)),
+            input_channels=int(model_params.get("input_channels", 5)),
+            conv_channels=_optional_int_tuple(model_params.get("conv_channels")),
+            kernel_sizes=_optional_int_tuple(model_params.get("kernel_sizes")),
+            pooling=str(model_params["pooling"]) if model_params.get("pooling") is not None else None,
+            classifier_hidden=_optional_int(model_params.get("classifier_hidden")),
             class_weighting=bool(params.get("class_weighting", False)),
             threshold_strategy=config.evaluation.threshold_strategy,
             device=_resolve_device(config.environment.device),
@@ -477,6 +482,14 @@ def _resolve_device(device: str) -> str:
 def _looks_like_resource_error(exc: RuntimeError) -> bool:
     message = str(exc).lower()
     return any(fragment in message for fragment in ("out of memory", "cuda", "cudnn", "mps"))
+
+
+def _optional_int_tuple(value: Any) -> tuple[int, ...] | None:
+    if value is None:
+        return None
+    if not isinstance(value, (list, tuple)):
+        raise ValueError("CNN architecture parameters must be TOML lists of integers")
+    return tuple(int(item) for item in value)
 
 
 def _optional_int(value: Any) -> int | None:

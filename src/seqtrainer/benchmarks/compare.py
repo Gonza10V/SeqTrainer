@@ -25,6 +25,12 @@ def compare_benchmark_outputs(
             continue
 
         manifest = _read_json(manifest_path) if manifest_path.exists() else {}
+        status = manifest.get("status")
+        if status is None:
+            status = manifest.get("extra", {}).get("status")
+        if status is not None and status != "completed":
+            continue
+
         contract = _comparison_contract(manifest)
         if contract is not None:
             if expected_contract is None:
@@ -33,12 +39,6 @@ def compare_benchmark_outputs(
                 raise ValueError(
                     "Cannot compare benchmark artifacts with different datasets or split files."
                 )
-
-        status = manifest.get("status")
-        if status is None:
-            status = manifest.get("extra", {}).get("status")
-        if status is not None and status != "completed":
-            continue
 
         metrics = pd.read_csv(metrics_path)
         model = manifest.get("model", {})

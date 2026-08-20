@@ -22,11 +22,17 @@ def build_run_manifest(
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a manifest with config, split, environment, and git metadata."""
+    split_summary_data = split_summary or {}
+    split_content_sha256 = {
+        split: values.get("content_sha256")
+        for split, values in split_summary_data.items()
+    }
     manifest: dict[str, Any] = {
         "experiment": asdict(config.experiment),
         "dataset": {
             **asdict(config.dataset),
-            "split_summary": split_summary or {},
+            "split_summary": split_summary_data,
+            "split_content_sha256": split_content_sha256,
         },
         "label": asdict(config.label),
         "split": asdict(config.split),

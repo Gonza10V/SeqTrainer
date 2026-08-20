@@ -1062,12 +1062,19 @@ def test_benchmark_compare_cli_and_helper_rank_test_metrics(tmp_path, capsys):
 
 def test_benchmark_compare_ignores_skipped_artifact_with_stale_metrics(tmp_path):
     config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
+    skipped_config = replace(
+        config,
+        dataset=replace(config.dataset, name="different_dataset"),
+    )
     completed = tmp_path / "completed"
     skipped = tmp_path / "skipped"
 
-    for out_dir, status, mcc in ((completed, "completed", 0.8), (skipped, "skipped", 0.99)):
+    for out_dir, current_config, status, mcc in (
+        (completed, config, "completed", 0.8),
+        (skipped, skipped_config, "skipped", 0.99),
+    ):
         manifest = build_run_manifest(
-            config,
+            current_config,
             split_summary={"test": {"rows": 2, "class_counts": {"0": 1, "1": 1}}},
             threshold=0.5,
             extra={"status": status},
@@ -1076,11 +1083,11 @@ def test_benchmark_compare_ignores_skipped_artifact_with_stale_metrics(tmp_path)
             out_dir,
             manifest=manifest,
             metrics={"test": {"mcc": mcc, "auprc": mcc, "accuracy": mcc}},
-            config=config,
+            config=current_config,
         )
 
     comparison = pd.read_csv(
-        compare_benchmark_outputs([completed, skipped], output_dir=tmp_path / "comparison")['comparison_metrics']
+        compare_benchmark_outputs([skipped, completed], output_dir=tmp_path / "comparison")["comparison_metrics"]
     )
     assert set(comparison["artifact_dir"]) == {str(completed)}
 
@@ -1149,6 +1156,22 @@ def test_ai_x_bio_fasta_parsing_and_source_split_preservation(tmp_path):
     assert list(train.columns) == ["sequence", "label", "id"]
     assert train.loc[0, "sequence"] == "ACGT"
     assert train["label"].tolist() == [1, 0]
+
+
+def test_ai_x_bio_rejects_duplicate_sequences_across_preserved_splits():
+    from seqtrainer.benchmarks.ai_x_bio import split_ai_x_bio_frame
+
+    frame = pd.DataFrame(
+        {
+            "sequence": ["ACGT", "TGCA", "ACGT"],
+            "label": [0, 1, 0],
+            "id": ["train-1", "validation-1", "test-1"],
+            "split": ["train", "validation", "test"],
+        }
+    )
+
+    with pytest.raises(ValueError, match="across source splits"):
+        split_ai_x_bio_frame(frame, seed=42)
 
 
 def test_ai_x_bio_stratified_split_creation_and_schema(tmp_path):

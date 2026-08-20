@@ -63,6 +63,16 @@ def write_benchmark_outputs(
     save_csv = bool(getattr(outputs, "save_csv", True))
     save_predictions = bool(getattr(outputs, "save_predictions", True))
 
+    # Prevent stale artifacts from a previous run being mistaken for current output.
+    if not save_json:
+        for path in (out_dir / "config.json", out_dir / "metrics.json"):
+            path.unlink(missing_ok=True)
+    if not save_csv:
+        for path in (out_dir / "metrics.csv", out_dir / "history.csv"):
+            path.unlink(missing_ok=True)
+    if not save_predictions:
+        (out_dir / "predictions.csv").unlink(missing_ok=True)
+
     written = {"manifest": write_json(out_dir / "manifest.json", manifest)}
     if config is not None and save_json:
         written["config"] = write_json(out_dir / "config.json", config)

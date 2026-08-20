@@ -38,6 +38,7 @@ _ALLOWED_SPLIT_STRATEGIES = {
     "k_fold",
     "stratified_group_k_fold",
 }
+_IMPLEMENTED_SPLIT_STRATEGIES = {"predefined"}
 _ALLOWED_THRESHOLD_STRATEGIES = {
     "validation_mcc",
     "validation_f1",
@@ -325,6 +326,12 @@ def _validate_config(config: BenchmarkConfig, source: str) -> None:
             raise ConfigValidationError(
                 f"{source}: stratified_group_k_fold requires split.group_field or dataset.group_field"
             )
+
+    if config.split.strategy not in _IMPLEMENTED_SPLIT_STRATEGIES:
+        raise ConfigValidationError(
+            f"{source}: split.strategy={config.split.strategy!r} is not implemented by the benchmark runners; "
+            "use split.strategy='predefined' with train/validation/test CSV files."
+        )
 
     if config.label.source == "numeric_target_threshold":
         if not config.label.target_field:

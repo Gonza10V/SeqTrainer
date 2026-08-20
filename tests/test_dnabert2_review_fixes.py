@@ -4,12 +4,16 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from seqtrainer.benchmarks.ai_x_bio import standardize_ai_x_bio_frame
 from seqtrainer.adapters.ipromp import (
     build_ipromp_mapping,
     normalize_ipromp_predictions,
 )
 from seqtrainer.benchmarks.config import load_benchmark_config
-from seqtrainer.torch.dnabert2_benchmark import _normalize_binary_labels
+from seqtrainer.torch.dnabert2_benchmark import (
+    _normalize_binary_labels,
+    _select_dnabert2_threshold,
+)
 
 
 CONFIG_PATH = (
@@ -71,6 +75,36 @@ def test_dnabert2_rejects_unconfigured_labels():
 
     with pytest.raises(ValueError, match="do not match configured"):
         _normalize_binary_labels(config, frame)
+
+
+def test_ai_x_bio_rejects_missing_sequences():
+    frame = pd.DataFrame(
+        {
+            "sequence": ["ACGT", None],
+            "label": [0, 1],
+        }
+    )
+
+    with pytest.raises(ValueError, match="missing or empty sequences"):
+        standardize_ai_x_bio_frame(frame)
+
+
+def test_dnabert2_honors_configured_threshold_strategy():
+    config = load_benchmark_config(CONFIG_PATH)
+    config = replace(
+        config,
+        evaluation=replace(config.evaluation, threshold_strategy="validation_f1"),
+    )
+
+    threshold, score, metric = _select_dnabert2_threshold(
+        config,
+        labels=pd.Series([0, 1, 1, 0]).to_numpy(),
+        probabilities=pd.Series([0.1, 0.7, 0.8, 0.2]).to_numpy(),
+    )
+
+    assert metric == "f1"
+    assert threshold >= 0.0
+    assert score >= 0.0
 
 
 def test_ipromp_mapping_rejects_duplicate_configured_ids():

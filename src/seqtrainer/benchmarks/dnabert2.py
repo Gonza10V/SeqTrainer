@@ -124,7 +124,19 @@ def _load_tokenizer(
 
 
 def _tokenized_frame(config: BenchmarkConfig, frame: pd.DataFrame, encoded: dict[str, Any]) -> pd.DataFrame:
-    labels = frame[config.dataset.label_field].astype(int).tolist()
+    negative_label = config.label.negative_label
+    positive_label = config.label.positive_label
+    if negative_label == positive_label:
+        raise ValueError("Configured negative_label and positive_label must differ.")
+    raw_labels = frame[config.dataset.label_field]
+    known = raw_labels.isin([negative_label, positive_label])
+    if not bool(known.all()):
+        unexpected = raw_labels.loc[~known].drop_duplicates().tolist()
+        raise ValueError(
+            f"Labels {unexpected!r} do not match configured negative/positive labels "
+            f"{negative_label!r}/{positive_label!r}."
+        )
+    labels = raw_labels.map({negative_label: 0, positive_label: 1}).astype(int).tolist()
     ids = (
         frame[config.dataset.id_field].astype(str).tolist()
         if config.dataset.id_field and config.dataset.id_field in frame

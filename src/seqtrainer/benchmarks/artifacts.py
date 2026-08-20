@@ -58,14 +58,21 @@ def write_benchmark_outputs(
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    outputs = getattr(config, "outputs", None)
+    save_json = bool(getattr(outputs, "save_json", True))
+    save_csv = bool(getattr(outputs, "save_csv", True))
+    save_predictions = bool(getattr(outputs, "save_predictions", True))
+
     written = {"manifest": write_json(out_dir / "manifest.json", manifest)}
-    if config is not None:
+    if config is not None and save_json:
         written["config"] = write_json(out_dir / "config.json", config)
     if metrics is not None:
-        written["metrics_json"] = write_json(out_dir / "metrics.json", metrics)
-        written["metrics_csv"] = write_metrics_csv(metrics, out_dir / "metrics.csv")
-    if predictions is not None:
+        if save_json:
+            written["metrics_json"] = write_json(out_dir / "metrics.json", metrics)
+        if save_csv:
+            written["metrics_csv"] = write_metrics_csv(metrics, out_dir / "metrics.csv")
+    if predictions is not None and save_predictions:
         written["predictions"] = write_table_csv(predictions, out_dir / "predictions.csv")
-    if history is not None:
+    if history is not None and save_csv:
         written["history"] = write_table_csv(history, out_dir / "history.csv")
     return written

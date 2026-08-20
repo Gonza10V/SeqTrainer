@@ -20,6 +20,7 @@ from seqtrainer.benchmarks import (
     write_benchmark_outputs,
 )
 from seqtrainer.cli.main import main
+from seqtrainer.benchmarks.runner import BenchmarkSkipped
 from seqtrainer.metrics import best_threshold_by_metric, binary_classification_metrics
 
 
@@ -182,6 +183,36 @@ def test_benchmark_manifest_cli_writes_shared_manifest(tmp_path, capsys):
     assert "train: rows=2" in captured.out
     assert (output_dir / "manifest.json").exists()
     assert (output_dir / "config.json").exists()
+
+
+def test_artifact_save_flags_are_honored(tmp_path):
+    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
+    config = replace(
+        config,
+        outputs=replace(
+            config.outputs,
+            save_json=False,
+            save_csv=False,
+            save_predictions=False,
+        ),
+    )
+    manifest = build_run_manifest(config, threshold=0.5)
+    written = write_benchmark_outputs(
+        tmp_path,
+        manifest=manifest,
+        metrics={"validation": {"mcc": 0.0}},
+        predictions=pd.DataFrame({"split": ["validation"], "probability": [0.5]}),
+        history=pd.DataFrame({"epoch": [1]}),
+        config=config,
+    )
+
+    assert set(written) == {"manifest"}
+    assert (tmp_path / "manifest.json").exists()
+    assert not (tmp_path / "config.json").exists()
+    assert not (tmp_path / "metrics.json").exists()
+    assert not (tmp_path / "metrics.csv").exists()
+    assert not (tmp_path / "predictions.csv").exists()
+    assert not (tmp_path / "history.csv").exists()
 
 
 def test_benchmark_run_cli_runs_cnn_and_writes_common_outputs(tmp_path, capsys):
@@ -490,6 +521,21 @@ def test_dnabert2_tokenization_pipeline_uses_shared_splits_and_metadata(tmp_path
     tokenized = pd.read_csv(result.tokenized_paths["train"])
     assert {"input_ids", "attention_mask", "token_count", "label"}.issubset(tokenized.columns)
     assert len(tokenized) == 4
+
+
+def test_dnabert2_tokenization_only_mode_never_reports_classifier_metrics(tmp_path):
+    pytest.importorskip("torch")
+    from seqtrainer.torch.dnabert2_benchmark import run_dnabert2_csv_splits
+
+    config = load_benchmark_config(CONFIG_DIR / "dnabert2_smoke.toml")
+    _write_configured_split_files(config, tmp_path)
+
+    with pytest.raises(BenchmarkSkipped, match="tokenization_only"):
+        run_dnabert2_csv_splits(
+            config,
+            base_dir=tmp_path,
+            output_dir=tmp_path / "dnabert2_smoke_run",
+        )
 
 
 def test_dnabert2_frozen_embedding_baseline_uses_encoder_and_caches_embeddings(tmp_path):

@@ -16,7 +16,7 @@ import pandas as pd
 from seqtrainer.benchmarks.artifacts import write_benchmark_outputs
 from seqtrainer.benchmarks.config import BenchmarkConfig
 from seqtrainer.benchmarks.manifest import build_run_manifest
-from seqtrainer.benchmarks.policy import decide_imbalance_policy
+from seqtrainer.benchmarks.policy import decide_imbalance_policy, threshold_metric_from_strategy
 from seqtrainer.benchmarks.runner import BenchmarkRunResult, BenchmarkSkipped
 from seqtrainer.benchmarks.splits import load_predefined_split_frames, summarize_split_frames
 from seqtrainer.metrics import best_threshold_by_metric, binary_classification_metrics
@@ -53,6 +53,12 @@ def run_dnabert2_csv_splits(
     imbalance_policy = decide_imbalance_policy(split_summary)
     params = dict(config.model.params)
     train_params = dict(config.training.params)
+    mode = str(params.get("mode", "frozen_embedding_classifier"))
+    if mode == "tokenization_only":
+        raise BenchmarkSkipped(
+            "DNABERT2 tokenization_only is a preparation smoke test, not a classifier benchmark. "
+            "Run prepare_dnabert2_tokenized_splits or use dnabert2_frozen.toml for benchmark metrics."
+        )
     allow_download = bool(params.get("allow_download", False))
     local_files_only = not allow_download
     trust_remote_code = bool(params.get("trust_remote_code", True))
@@ -70,7 +76,7 @@ def run_dnabert2_csv_splits(
             disable_flash_attention=bool(params.get("disable_flash_attention", False)),
             revision=params.get("revision"),
         )
-    freeze_encoder = str(params.get("mode", "frozen_embedding_classifier")) != "full_finetune"
+    freeze_encoder = mode != "full_finetune"
     if freeze_encoder:
         for parameter in encoder.parameters():
             parameter.requires_grad = False
@@ -153,8 +159,9 @@ def run_dnabert2_csv_splits(
     max_grad_norm = float(train_params.get("max_grad_norm", 1.0))
 
     history: list[dict[str, float]] = []
-    best_mcc = float("-inf")
+    best_selection_score = float("-inf")
     best_threshold = 0.5
+    selection_metric = _selection_metric_for_strategy(config.evaluation.threshold_strategy)
     patience = int(train_params.get("early_stopping_patience", 3))
     bad_epochs = 0
     out_dir = Path(output_dir or config.outputs.output_dir)
@@ -182,23 +189,30 @@ def run_dnabert2_csv_splits(
             torch,
             precision=precision,
         )
-        threshold, validation_mcc = best_threshold_by_metric(
+        threshold, validation_selection_score, selection_metric = _select_dnabert2_threshold(
+            config,
             validation["label"],
             validation["probability"],
-            metric="mcc",
         )
+        validation_metrics = binary_classification_metrics(
+            validation["label"],
+            validation["probability"],
+            threshold,
+        )
+        validation_mcc = float(validation_metrics["mcc"])
         history.append(
             {
                 "epoch": float(epoch),
                 "train_loss": float(train_loss),
                 "validation_loss": float(validation["loss"]),
                 "validation_mcc": float(validation_mcc),
+                "validation_selection_score": float(validation_selection_score),
                 "validation_threshold": float(threshold),
                 "learning_rate": float(optimizer.param_groups[0]["lr"]),
             }
         )
-        if validation_mcc > best_mcc:
-            best_mcc = float(validation_mcc)
+        if validation_selection_score > best_selection_score:
+            best_selection_score = float(validation_selection_score)
             best_threshold = float(threshold)
             torch.save(model.state_dict(), checkpoint_path)
             bad_epochs = 0
@@ -263,7 +277,8 @@ def run_dnabert2_csv_splits(
             "precision": precision,
             "max_grad_norm": max_grad_norm,
             "optimizer_steps_per_epoch": optimizer_steps_per_epoch,
-            "early_stopping_metric": "validation_mcc",
+            "early_stopping_metric": f"validation_{selection_metric}",
+            "threshold_strategy": config.evaluation.threshold_strategy,
             "resolved_device": str(device),
             "runtime_seconds": float(time.perf_counter() - run_started),
             "peak_memory_mb": _peak_memory_mb(torch, device),
@@ -361,9 +376,10 @@ def _run_frozen_embedding_classifier(
     scheduler = _linear_warmup_scheduler(optimizer, warmup_steps, total_steps)
     patience = int(train_params.get("early_stopping_patience", 4))
     best_state = {key: value.detach().cpu().clone() for key, value in classifier.state_dict().items()}
-    best_mcc = float("-inf")
+    best_selection_score = float("-inf")
     best_auprc = float("-inf")
     best_threshold = 0.5
+    selection_metric = _selection_metric_for_strategy(config.evaluation.threshold_strategy)
     bad_epochs = 0
     history: list[dict[str, float]] = []
 
@@ -385,16 +401,17 @@ def _run_frozen_embedding_classifier(
         train_loss_value = train_loss_total / max(train_examples, 1)
 
         validation = _predict_from_embeddings(classifier, embeddings["validation"], labels["validation"], criterion, device, torch)
-        threshold, validation_mcc = best_threshold_by_metric(
+        threshold, validation_selection_score, selection_metric = _select_dnabert2_threshold(
+            config,
             validation["label"],
             validation["probability"],
-            metric="mcc",
         )
         validation_metrics = binary_classification_metrics(
             validation["label"],
             validation["probability"],
             threshold,
         )
+        validation_mcc = float(validation_metrics["mcc"])
         validation_auprc = validation_metrics["auprc"]
         validation_auprc_score = float(validation_auprc) if validation_auprc is not None else float("-inf")
         history.append(
@@ -403,16 +420,20 @@ def _run_frozen_embedding_classifier(
                 "train_loss": train_loss_value,
                 "validation_loss": float(validation["loss"]),
                 "validation_mcc": float(validation_mcc),
+                "validation_selection_score": float(validation_selection_score),
                 "validation_auprc": validation_auprc_score,
                 "validation_threshold": float(threshold),
                 "learning_rate": float(optimizer.param_groups[0]["lr"]),
             }
         )
         if (
-            validation_mcc > best_mcc
-            or (validation_mcc == best_mcc and validation_auprc_score > best_auprc)
+            validation_selection_score > best_selection_score
+            or (
+                validation_selection_score == best_selection_score
+                and validation_auprc_score > best_auprc
+            )
         ):
-            best_mcc = float(validation_mcc)
+            best_selection_score = float(validation_selection_score)
             best_auprc = validation_auprc_score
             best_threshold = float(threshold)
             best_state = {key: value.detach().cpu().clone() for key, value in classifier.state_dict().items()}
@@ -463,7 +484,8 @@ def _run_frozen_embedding_classifier(
             "pos_weight": float(criterion.pos_weight.item()) if getattr(criterion, "pos_weight", None) is not None else None,
             "optimizer": "adamw",
             "warmup_ratio": float(train_params.get("warmup_ratio", 0.0)),
-            "early_stopping_metric": "validation_mcc",
+            "early_stopping_metric": f"validation_{selection_metric}",
+            "threshold_strategy": config.evaluation.threshold_strategy,
             "early_stopping_tie_breaker": "validation_auprc",
             "resolved_device": str(device),
             "runtime_seconds": float(time.perf_counter() - run_started),
@@ -537,6 +559,33 @@ def _normalize_binary_labels(config: BenchmarkConfig, frame: pd.DataFrame) -> An
         )
 
     return raw_labels.map({negative_label: 0, positive_label: 1}).to_numpy(dtype=np.float32)
+
+
+def _selection_metric_for_strategy(strategy: str) -> str:
+    """Return the validation metric used for checkpoint selection."""
+    metric = threshold_metric_from_strategy(strategy)
+    return metric or "mcc"
+
+
+def _select_dnabert2_threshold(
+    config: BenchmarkConfig,
+    labels: np.ndarray,
+    probabilities: np.ndarray,
+) -> tuple[float, float, str]:
+    """Select a validation threshold according to the configured policy."""
+    strategy = config.evaluation.threshold_strategy
+    metric = threshold_metric_from_strategy(strategy)
+    if metric is None:
+        threshold = 0.5
+        metrics = binary_classification_metrics(labels, probabilities, threshold)
+        return threshold, float(metrics["mcc"]), "mcc"
+
+    threshold, score = best_threshold_by_metric(
+        labels,
+        probabilities,
+        metric=metric,
+    )
+    return float(threshold), float(score), metric
 
 
 def _encode_split(config: BenchmarkConfig, frame: pd.DataFrame, tokenizer: Any, torch: Any) -> _EncodedSplit:

@@ -150,6 +150,31 @@ def test_train_val_test_ratio_validation():
         parse_benchmark_config(raw, source="demo.toml")
 
 
+def test_unimplemented_split_strategy_fails_during_config_validation():
+    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
+    raw = {
+        "experiment": config.experiment.__dict__,
+        "dataset": {**config.dataset.__dict__, "split_files": {}},
+        "label": config.label.__dict__,
+        "split": {
+            **config.split.__dict__,
+            "strategy": "train_val_test",
+            "train_size": 0.7,
+            "validation_size": 0.15,
+            "test_size": 0.15,
+        },
+        "preprocessing": config.preprocessing.__dict__,
+        "model": config.model.__dict__,
+        "training": config.training.__dict__,
+        "evaluation": {**config.evaluation.__dict__, "metrics": list(config.evaluation.metrics)},
+        "outputs": config.outputs.__dict__,
+        "environment": config.environment.__dict__,
+    }
+
+    with pytest.raises(ConfigValidationError, match="not implemented by the benchmark runners"):
+        parse_benchmark_config(raw, source="demo.toml")
+
+
 def test_required_metric_suite_is_enforced():
     config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
     raw = {

@@ -179,6 +179,11 @@ def standardize_ai_x_bio_frame(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[
     if label_col is None:
         raise ValueError(f"Could not infer label column. Tried aliases: {LABEL_ALIASES}")
 
+    missing_sequence = frame[sequence_col].isna() | frame[sequence_col].astype(str).str.strip().eq("")
+    if missing_sequence.any():
+        examples = frame.loc[missing_sequence, sequence_col].head(5).tolist()
+        raise ValueError(f"Source contains missing or empty sequences. Examples: {examples}")
+
     out = pd.DataFrame()
     out["sequence"] = frame[sequence_col].map(normalize_dna_sequence)
     out["label"] = frame[label_col].map(normalize_binary_label)
@@ -229,6 +234,8 @@ def split_ai_x_bio_frame(frame: pd.DataFrame, *, seed: int = 42) -> tuple[dict[s
 
 def normalize_dna_sequence(value: Any) -> str:
     """Normalize DNA to uppercase A/C/G/T/N, replacing U with T."""
+    if pd.isna(value):
+        return ""
     text = str(value).strip().upper().replace("U", "T")
     return re.sub("[^ACGTN]", "N", text)
 

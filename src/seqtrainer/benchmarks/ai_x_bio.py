@@ -221,6 +221,7 @@ def split_ai_x_bio_frame(frame: pd.DataFrame, *, seed: int = 42) -> tuple[dict[s
         missing = [split for split, split_frame in split_frames.items() if split_frame.empty]
         if missing:
             raise ValueError(f"Source split column is present but missing split(s): {missing}")
+        _reject_cross_split_duplicate_sequences(split_frames)
         return split_frames, "preserved_source_split"
 
     train, temp = _stratified_group_train_test_split(frame, test_size=0.30, seed=seed)
@@ -230,6 +231,20 @@ def split_ai_x_bio_frame(frame: pd.DataFrame, *, seed: int = 42) -> tuple[dict[s
         "validation": validation[["sequence", "label", "id"]].reset_index(drop=True),
         "test": test[["sequence", "label", "id"]].reset_index(drop=True),
     }, "seeded_stratified_70_15_15"
+
+
+def _reject_cross_split_duplicate_sequences(split_frames: dict[str, pd.DataFrame]) -> None:
+    """Reject normalized sequences that appear in more than one source split."""
+    seen: dict[str, str] = {}
+    for split, split_frame in split_frames.items():
+        for sequence in split_frame["sequence"].astype(str):
+            previous_split = seen.get(sequence)
+            if previous_split is not None:
+                raise ValueError(
+                    "Duplicate normalized sequence appears across source splits: "
+                    f"{sequence!r} occurs in {previous_split} and {split}."
+                )
+            seen[sequence] = split
 
 
 def normalize_dna_sequence(value: Any) -> str:

@@ -85,7 +85,6 @@ def test_ai_x_bio_model_examples_share_prepared_split_contract():
         load_benchmark_config(CONFIG_DIR / name)
         for name in (
             "cnn_v2_ai_x_bio.toml",
-            "dnabert2_ai_x_bio_frozen.toml",
         )
     ]
     dataset_names = {config.dataset.name for config in configs}

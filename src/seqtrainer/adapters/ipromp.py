@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote, unquote
 
 import pandas as pd
 
@@ -106,7 +107,7 @@ def write_ipromp_fastas(
         for row in split_mapping.itertuples(index=False):
             header = (
                 f">seqtrainer|split={row.split}|row_index={row.row_index}|"
-                f"sequence_id={row.sequence_id}|label={row.label}"
+                f"sequence_id={_encode_fasta_value(row.sequence_id)}|label={row.label}"
             )
             lines.append(header)
             lines.append(str(row.sequence))
@@ -131,6 +132,7 @@ def write_ipromp_run_commands(
     model_dir = str(params.get("ipromp_model_dir", "./external/iPro-MP/models"))
     batch_size = int(params.get("inference_batch_size", 32))
     max_length = int(params.get("max_length", 128))
+    kmer_size = int(params.get("kmer_size", 6))
     seed = int(config.training.seed)
     script = out_dir / "ipromp_run_commands.sh"
     lines = [
@@ -155,6 +157,7 @@ def write_ipromp_run_commands(
                 "  --model-dir \"${IPROMP_MODEL_DIR}\" \\",
                 f"  --species-id {species_id} \\",
                 f"  --max-length {max_length} \\",
+                f"  --kmer-size {kmer_size} \\",
                 f"  --batch-size {batch_size} \\",
                 f"  --seed {seed}",
                 "",
@@ -293,8 +296,8 @@ def _normalize_seqtrainer_predictions(
         target_mapping = target_mapping[target_mapping["split"] == expected_split]
 
     if "sequence_id" in table.columns:
-        table["sequence_id"] = table["sequence_id"].astype(str)
-        target_mapping["sequence_id"] = target_mapping["sequence_id"].astype(str)
+        table["sequence_id"] = table["sequence_id"].map(_decode_fasta_value)
+        target_mapping["sequence_id"] = target_mapping["sequence_id"].map(_decode_fasta_value)
         prediction_keys = table[["split", "sequence_id"]]
         if prediction_keys.duplicated().any():
             raise ValueError("Normalized iPro-MP predictions contain duplicate split/sequence_id rows.")
@@ -501,6 +504,15 @@ def _resolve_input_path(path: str | Path, base_dir: str | Path | None) -> Path:
 
 def _as_posix(path: str | Path) -> str:
     return Path(path).as_posix()
+
+
+def _encode_fasta_value(value: Any) -> str:
+    """Encode metadata values so FASTA pipe-delimited headers remain parseable."""
+    return "url:" + quote(str(value), safe="")
+
+def _decode_fasta_value(value: Any) -> str:
+    text = str(value)
+    return unquote(text[4:]) if text.startswith("url:") else text
 
 
 def _script_path(path: str | Path) -> str:

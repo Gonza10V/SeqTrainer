@@ -211,3 +211,41 @@ def test_required_metric_suite_is_enforced():
 
     with pytest.raises(ConfigValidationError, match="evaluation.metrics"):
         parse_benchmark_config(raw, source="demo.toml")
+
+
+def test_numeric_target_threshold_is_rejected_as_unimplemented():
+    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
+    raw = {
+        "experiment": config.experiment.__dict__,
+        "dataset": {**config.dataset.__dict__, "split_files": dict(config.dataset.split_files)},
+        "label": {**config.label.__dict__, "source": "numeric_target_threshold"},
+        "split": config.split.__dict__,
+        "preprocessing": config.preprocessing.__dict__,
+        "model": config.model.__dict__,
+        "training": config.training.__dict__,
+        "evaluation": {**config.evaluation.__dict__, "metrics": list(config.evaluation.metrics)},
+        "outputs": config.outputs.__dict__,
+        "environment": config.environment.__dict__,
+    }
+
+    with pytest.raises(ConfigValidationError, match="not implemented"):
+        parse_benchmark_config(raw, source="numeric.toml")
+
+
+def test_cnn_rejects_disabled_pad_or_trim():
+    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
+    raw = {
+        "experiment": config.experiment.__dict__,
+        "dataset": {**config.dataset.__dict__, "split_files": dict(config.dataset.split_files)},
+        "label": config.label.__dict__,
+        "split": config.split.__dict__,
+        "preprocessing": {**config.preprocessing.__dict__, "pad_or_trim": False},
+        "model": config.model.__dict__,
+        "training": config.training.__dict__,
+        "evaluation": {**config.evaluation.__dict__, "metrics": list(config.evaluation.metrics)},
+        "outputs": config.outputs.__dict__,
+        "environment": config.environment.__dict__,
+    }
+
+    with pytest.raises(ConfigValidationError, match="pad_or_trim=true"):
+        parse_benchmark_config(raw, source="cnn.toml")

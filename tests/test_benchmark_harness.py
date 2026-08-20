@@ -1353,3 +1353,93 @@ def test_direct_cnn_cli_preserves_zero_overrides(tmp_path, monkeypatch):
     assert captured["config"].seed == 0
     assert captured["config"].cycles == 0
     assert captured["config"].learning_rate == 0.0
+
+
+def test_best_threshold_single_class_returns_neutral_threshold():
+    threshold, score = best_threshold_by_metric(
+        y_true=[0, 0, 0],
+        y_score=[0.1, 0.2, 0.3],
+        metric="mcc",
+    )
+
+    assert threshold == 0.5
+    assert score == 0.0
+
+
+def test_predefined_split_loader_rejects_empty_and_null_required_values(tmp_path):
+    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
+    split_dir = tmp_path / "data" / "promoter_classification"
+    split_dir.mkdir(parents=True)
+    paths = {
+        "train": "train_EP_DNA_BERT2_genomic_order.csv",
+        "validation": "eval_EP_DNA_BERT2_genomic_order.csv",
+        "test": "test_EP_DNA_BERT2_genomic_order.csv",
+    }
+    for filename in paths.values():
+        pd.DataFrame({"sequence": ["ACGT"], "label": [0]}).to_csv(
+            split_dir / filename, index=False
+        )
+
+    pd.DataFrame({"sequence": [], "label": []}).to_csv(
+        split_dir / paths["validation"], index=False
+    )
+    with pytest.raises(ValueError, match="validation split must contain"):
+        load_predefined_split_frames(config, base_dir=tmp_path)
+
+    pd.DataFrame({"sequence": [None], "label": [0]}).to_csv(
+        split_dir / paths["validation"], index=False
+    )
+    with pytest.raises(ValueError, match="null values"):
+        load_predefined_split_frames(config, base_dir=tmp_path)
+
+
+def test_artifact_writer_removes_stale_disabled_outputs(tmp_path):
+    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
+    config = replace(
+        config,
+        outputs=replace(
+            config.outputs,
+            save_json=False,
+            save_csv=False,
+            save_predictions=False,
+        ),
+    )
+    for name in ("config.json", "metrics.json", "metrics.csv", "history.csv", "predictions.csv"):
+        (tmp_path / name).write_text("stale", encoding="utf-8")
+
+    write_benchmark_outputs(
+        tmp_path,
+        manifest=build_run_manifest(config, threshold=0.5),
+        metrics={"validation": {"mcc": 0.0}},
+        predictions=pd.DataFrame({"split": ["validation"], "probability": [0.5]}),
+        history=pd.DataFrame({"epoch": [1]}),
+        config=config,
+    )
+
+    assert not any(
+        (tmp_path / name).exists()
+        for name in ("config.json", "metrics.json", "metrics.csv", "history.csv", "predictions.csv")
+    )
+
+
+def test_comparison_rejects_different_dataset_metadata(tmp_path):
+    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
+    other_config = replace(
+        config,
+        dataset=replace(config.dataset, name="different_dataset"),
+    )
+    metrics = {"test": {"mcc": 0.2, "auprc": 0.4, "accuracy": 0.5}}
+    for name, current_config in (("first", config), ("second", other_config)):
+        out_dir = tmp_path / name
+        write_benchmark_outputs(
+            out_dir,
+            manifest=build_run_manifest(current_config, threshold=0.5),
+            metrics=metrics,
+            config=current_config,
+        )
+
+    with pytest.raises(ValueError, match="different datasets or split files"):
+        compare_benchmark_outputs(
+            [tmp_path / "first", tmp_path / "second"],
+            output_dir=tmp_path / "comparison",
+        )

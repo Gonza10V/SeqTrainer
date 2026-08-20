@@ -136,6 +136,7 @@ def _comparison_contract(manifest: dict[str, Any]) -> str | None:
         "source_accession": dataset.get("source_accession"),
         "source_url": dataset.get("source_url"),
         "split_files": dataset.get("split_files"),
+        "split_content_sha256": dataset.get("split_content_sha256"),
     }
     if all(value is None for value in contract.values()):
         return None

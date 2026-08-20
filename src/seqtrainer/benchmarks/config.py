@@ -26,7 +26,7 @@ REQUIRED_CLASSIFICATION_METRICS = {
 }
 
 _ALLOWED_MODEL_FAMILIES = {"cnn", "dnabert2", "ipromp"}
-_ALLOWED_DATASET_FORMATS = {"csv", "sbol", "fasta", "materialized_csv"}
+_ALLOWED_DATASET_FORMATS = {"csv", "materialized_csv"}
 _ALLOWED_LABEL_SOURCES = {
     "provided_binary",
     "curated_binary",

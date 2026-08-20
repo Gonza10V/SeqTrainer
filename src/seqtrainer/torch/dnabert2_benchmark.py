@@ -54,6 +54,12 @@ def run_dnabert2_csv_splits(
     params = dict(config.model.params)
     train_params = dict(config.training.params)
     mode = str(params.get("mode", "frozen_embedding_classifier"))
+    supported_modes = {"frozen_embedding_classifier", "full_finetune", "tokenization_only"}
+    if mode not in supported_modes:
+        raise ValueError(
+            f"Unsupported DNABERT2 model.params.mode={mode!r}. "
+            f"Expected one of {sorted(supported_modes)}."
+        )
     if mode == "tokenization_only":
         raise BenchmarkSkipped(
             "DNABERT2 tokenization_only is a preparation smoke test, not a classifier benchmark. "
@@ -323,6 +329,7 @@ def _run_frozen_embedding_classifier(
     params = dict(config.model.params)
     train_params = dict(config.training.params)
     pooling = str(params.get("pooling", "mean"))
+    precision = str(config.environment.precision).lower()
     out_dir = Path(output_dir or config.outputs.output_dir)
     embedding_dir = out_dir / "embeddings"
     embedding_dir.mkdir(parents=True, exist_ok=True)
@@ -341,6 +348,7 @@ def _run_frozen_embedding_classifier(
             device=device,
             torch=torch,
             batch_size=config.training.batch_size or 16,
+            precision=precision,
         )
         embeddings[split] = emb
         labels[split] = value.labels
@@ -389,9 +397,10 @@ def _run_frozen_embedding_classifier(
         train_examples = 0
         for train_embeddings, train_labels in train_loader:
             optimizer.zero_grad(set_to_none=True)
-            train_logits = classifier(train_embeddings.to(device)).squeeze(-1)
             train_labels = train_labels.to(device)
-            train_loss = criterion(train_logits, train_labels)
+            with _autocast_context(torch, device, precision):
+                train_logits = classifier(train_embeddings.to(device)).squeeze(-1)
+                train_loss = criterion(train_logits, train_labels)
             train_loss.backward()
             optimizer.step()
             scheduler.step()
@@ -400,7 +409,15 @@ def _run_frozen_embedding_classifier(
             train_examples += batch_size
         train_loss_value = train_loss_total / max(train_examples, 1)
 
-        validation = _predict_from_embeddings(classifier, embeddings["validation"], labels["validation"], criterion, device, torch)
+        validation = _predict_from_embeddings(
+            classifier,
+            embeddings["validation"],
+            labels["validation"],
+            criterion,
+            device,
+            torch,
+            precision=precision,
+        )
         threshold, validation_selection_score, selection_metric = _select_dnabert2_threshold(
             config,
             validation["label"],
@@ -446,7 +463,15 @@ def _run_frozen_embedding_classifier(
 
     classifier.load_state_dict(best_state)
     predictions = {
-        split: _predict_from_embeddings(classifier, embeddings[split], labels[split], criterion, device, torch)
+        split: _predict_from_embeddings(
+            classifier,
+            embeddings[split],
+            labels[split],
+            criterion,
+            device,
+            torch,
+            precision=precision,
+        )
         for split in ("train", "validation", "test")
     }
     metrics: dict[str, dict[str, Any]] = {}
@@ -484,6 +509,7 @@ def _run_frozen_embedding_classifier(
             "pos_weight": float(criterion.pos_weight.item()) if getattr(criterion, "pos_weight", None) is not None else None,
             "optimizer": "adamw",
             "warmup_ratio": float(train_params.get("warmup_ratio", 0.0)),
+            "precision": precision,
             "early_stopping_metric": f"validation_{selection_metric}",
             "threshold_strategy": config.evaluation.threshold_strategy,
             "early_stopping_tie_breaker": "validation_auprc",
@@ -903,6 +929,7 @@ def _extract_embeddings(
     device: Any,
     torch: Any,
     batch_size: int,
+    precision: str = "float32",
 ) -> Any:
     pooled_batches = []
     total = int(encoded.input_ids.shape[0])
@@ -914,9 +941,10 @@ def _extract_embeddings(
                 "input_ids": _tensor_to_device(encoded.input_ids[start:stop], device),
                 "attention_mask": _tensor_to_device(encoded.attention_mask[start:stop], device),
             }
-            outputs = encoder(**batch)
-            pooled = _pool_hidden_states(_last_hidden_state(outputs), batch["attention_mask"], pooling)
-            pooled_batches.append(pooled.detach().cpu())
+            with _autocast_context(torch, device, precision):
+                outputs = encoder(**batch)
+                pooled = _pool_hidden_states(_last_hidden_state(outputs), batch["attention_mask"], pooling)
+            pooled_batches.append(pooled.float().detach().cpu())
     return torch.cat(pooled_batches, dim=0)
 
 
@@ -935,13 +963,23 @@ def _pool_hidden_states(hidden: Any, attention_mask: Any, pooling: str) -> Any:
     return (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp_min(1.0)
 
 
-def _predict_from_embeddings(classifier: Any, embeddings: Any, labels: Any, criterion: Any, device: Any, torch: Any) -> dict[str, Any]:
+def _predict_from_embeddings(
+    classifier: Any,
+    embeddings: Any,
+    labels: Any,
+    criterion: Any,
+    device: Any,
+    torch: Any,
+    *,
+    precision: str = "float32",
+) -> dict[str, Any]:
     classifier.eval()
     with torch.no_grad():
-        logits = classifier(embeddings.to(device)).squeeze(-1)
         target = _tensor_to_device(labels, device)
-        loss = criterion(logits, target)
-        probs = torch.sigmoid(logits)
+        with _autocast_context(torch, device, precision):
+            logits = classifier(embeddings.to(device)).squeeze(-1)
+            loss = criterion(logits, target)
+            probs = torch.sigmoid(logits)
     return {
         "label": labels.detach().cpu().numpy().astype(int),
         "probability": probs.detach().cpu().numpy().astype(float),

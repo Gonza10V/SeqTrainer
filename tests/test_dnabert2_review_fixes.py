@@ -8,6 +8,7 @@ from seqtrainer.benchmarks.ai_x_bio import standardize_ai_x_bio_frame
 from seqtrainer.adapters.ipromp import (
     build_ipromp_mapping,
     normalize_ipromp_predictions,
+    _normalize_official_predictions,
 )
 from seqtrainer.benchmarks.config import load_benchmark_config
 from seqtrainer.torch.dnabert2_benchmark import (
@@ -188,6 +189,31 @@ def test_ipromp_rejects_reordered_idless_labels(tmp_path):
             predictions_csv=predictions_path,
             frames=frames,
         )
+
+
+def test_ipromp_official_predictions_with_ids_join_by_id_and_require_coverage():
+    config = load_benchmark_config(CONFIG_PATH)
+    frames = {
+        split: pd.DataFrame({"sequence": ["ACGT", "TGCA"], "label": [0, 1]})
+        for split in ("train", "validation", "test")
+    }
+    mapping = build_ipromp_mapping(config, frames)
+    validation_mapping = mapping[mapping["split"] == "validation"].sort_values("row_index")
+    predictions = pd.DataFrame(
+        {
+            "Sequence": ["TGCA", "ACGT"],
+            "sequence_id": validation_mapping["sequence_id"].tolist()[::-1],
+            "Probability": [0.8, 0.2],
+        }
+    )
+
+    normalized = _normalize_official_predictions(config, predictions, mapping, "validation")
+
+    assert normalized["sequence_id"].tolist() == validation_mapping["sequence_id"].tolist()
+    assert normalized["probability"].tolist() == [0.2, 0.8]
+
+    with pytest.raises(ValueError, match="exactly one row"):
+        _normalize_official_predictions(config, predictions.iloc[:1], mapping, "validation")
 
 
 def test_dnabert2_scales_final_partial_accumulation_window():

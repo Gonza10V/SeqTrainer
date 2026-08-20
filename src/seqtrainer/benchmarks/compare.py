@@ -23,8 +23,14 @@ def compare_benchmark_outputs(
         if not metrics_path.exists():
             continue
 
-        metrics = pd.read_csv(metrics_path)
         manifest = _read_json(manifest_path) if manifest_path.exists() else {}
+        status = manifest.get("status")
+        if status is None:
+            status = manifest.get("extra", {}).get("status")
+        if status is not None and status != "completed":
+            continue
+
+        metrics = pd.read_csv(metrics_path)
         model = manifest.get("model", {})
         experiment = manifest.get("experiment", {})
         threshold = _selected_threshold(manifest)

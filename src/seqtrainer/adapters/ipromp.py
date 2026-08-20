@@ -366,14 +366,34 @@ def _normalize_official_predictions(
             "Official iPro-MP predictions must include a probability or hard prediction column."
         )
     split_mapping = mapping[mapping["split"] == split].copy()
-    duplicated = split_mapping["sequence"].duplicated(keep=False)
-    if duplicated.any() and "sequence_id" not in table.columns:
-        examples = split_mapping.loc[duplicated, "sequence"].head(3).tolist()
-        raise ValueError(
-            "Official iPro-MP output joins by Sequence, but this split has duplicate sequences. "
-            f"Use SeqTrainer-normalized output with sequence_id. Examples: {examples}"
-        )
-    merged = split_mapping.merge(table, on="sequence", how="left", suffixes=("", "_pred"))
+    if "sequence_id" in table.columns:
+        if table["sequence_id"].isna().any() or table["sequence_id"].astype(str).str.strip().eq("").any():
+            raise ValueError("Official iPro-MP predictions contain missing sequence_id values.")
+        table["sequence_id"] = table["sequence_id"].astype(str)
+        split_mapping["sequence_id"] = split_mapping["sequence_id"].astype(str)
+        prediction_keys = table[["sequence_id"]]
+        if prediction_keys.duplicated().any():
+            raise ValueError("Official iPro-MP predictions contain duplicate sequence_id rows.")
+        expected_keys = split_mapping[["sequence_id"]]
+        missing_keys = expected_keys.merge(prediction_keys, on="sequence_id", how="left", indicator=True)
+        missing_keys = missing_keys[missing_keys["_merge"] == "left_only"]
+        unexpected_keys = prediction_keys.merge(expected_keys, on="sequence_id", how="left", indicator=True)
+        unexpected_keys = unexpected_keys[unexpected_keys["_merge"] == "left_only"]
+        if not missing_keys.empty or not unexpected_keys.empty:
+            raise ValueError(
+                "Official iPro-MP predictions with sequence_id must contain exactly one row for every "
+                f"{split} mapping. Missing rows: {len(missing_keys)}; unexpected rows: {len(unexpected_keys)}."
+            )
+        merged = split_mapping.merge(table, on="sequence_id", how="left", suffixes=("", "_pred"))
+    else:
+        duplicated = split_mapping["sequence"].duplicated(keep=False)
+        if duplicated.any():
+            examples = split_mapping.loc[duplicated, "sequence"].head(3).tolist()
+            raise ValueError(
+                "Official iPro-MP output joins by Sequence, but this split has duplicate sequences. "
+                f"Use SeqTrainer-normalized output with sequence_id. Examples: {examples}"
+            )
+        merged = split_mapping.merge(table, on="sequence", how="left", suffixes=("", "_pred"))
     if "probability" in merged.columns and merged["probability"].isna().any():
         if "prediction" not in merged.columns or merged["prediction"].isna().any():
             raise ValueError(f"Missing iPro-MP predictions for at least one {split} sequence.")

@@ -120,13 +120,18 @@ def _run_dnabert2(
 ) -> BenchmarkRunResult:
     try:
         from seqtrainer.torch.dnabert2_benchmark import run_dnabert2_csv_splits
+    except (ModuleNotFoundError, ImportError) as exc:
+        if not allow_skip:
+            raise
+        return _write_skipped_result(config, base_dir=base_dir, output_dir=output_dir, reason=str(exc))
 
+    try:
         return run_dnabert2_csv_splits(
             config,
             base_dir=base_dir,
             output_dir=Path(output_dir or config.outputs.output_dir),
         )
-    except (BenchmarkSkipped, ModuleNotFoundError, ImportError, OSError) as exc:
+    except BenchmarkSkipped as exc:
         if not allow_skip:
             raise
         return _write_skipped_result(config, base_dir=base_dir, output_dir=output_dir, reason=str(exc))
@@ -164,78 +169,66 @@ def _run_ipromp(
         and _configured_path_exists(test_predictions_csv, base_dir)
     )
     if prediction_files_ready:
-        try:
-            from seqtrainer.adapters.ipromp import normalize_ipromp_predictions, prepare_ipromp_inputs
+        from seqtrainer.adapters.ipromp import normalize_ipromp_predictions, prepare_ipromp_inputs
 
-            if not _configured_path_exists(mapping_csv, base_dir):
-                prepared = prepare_ipromp_inputs(config, base_dir=base_dir, output_dir=out_dir)
-                mapping_csv = prepared.mapping_csv
-            predictions = normalize_ipromp_predictions(
-                config,
-                mapping_csv=mapping_csv,
-                validation_predictions_csv=validation_predictions_csv,
-                test_predictions_csv=test_predictions_csv,
-                train_predictions_csv=train_predictions_csv,
-                predictions_csv=predictions_csv,
-                base_dir=base_dir,
-            )
-            return _evaluate_external_prediction_frame(
-                config,
-                predictions=predictions,
-                base_dir=base_dir,
-                output_dir=out_dir,
-                model_metadata={
-                    "adapter_mode": params.get("adapter_mode", "external_fasta_prediction"),
-                    "species_id": params.get("species_id"),
-                    "species_name": params.get("species_name"),
-                    "mapping_csv": str(mapping_csv),
-                    "validation_predictions_csv": str(validation_predictions_csv) if validation_predictions_csv else None,
-                    "test_predictions_csv": str(test_predictions_csv) if test_predictions_csv else None,
-                    "train_predictions_csv": str(train_predictions_csv) if train_predictions_csv else None,
-                    "predictions_csv": str(predictions_csv) if predictions_csv else None,
-                },
-            )
-        except Exception:
-            if not allow_skip:
-                raise
-            raise
-
-    try:
-        from seqtrainer.adapters.ipromp import prepare_ipromp_inputs
-
-        frames = load_predefined_split_frames(config, base_dir=base_dir)
-        split_summary = summarize_split_frames(config, frames)
-        imbalance_policy = decide_imbalance_policy(split_summary)
-        prepared = prepare_ipromp_inputs(config, base_dir=base_dir, output_dir=out_dir)
-        reason = (
-            "FASTA prepared; run official iPro-MP externally and provide validation/test prediction CSVs."
-        )
-        manifest_extra = {
-            "status": "skipped",
-            "skip_reason": reason,
-            "fasta_paths": {split: str(path) for split, path in prepared.fasta_paths.items()},
-            "mapping_csv": str(prepared.mapping_csv),
-            "command_script": str(prepared.command_script),
-            "external_prediction_schema": str(prepared.prediction_schema),
-            "imbalance_policy": {
-                "apply_to_training": imbalance_policy.apply_to_training,
-                "strategy": imbalance_policy.strategy,
-                "class_counts": imbalance_policy.class_counts,
-                "imbalance_ratio": imbalance_policy.imbalance_ratio,
-                "reason": imbalance_policy.reason,
-            },
-        }
-        return _write_skipped_result(
+        if not _configured_path_exists(mapping_csv, base_dir):
+            prepared = prepare_ipromp_inputs(config, base_dir=base_dir, output_dir=out_dir)
+            mapping_csv = prepared.mapping_csv
+        predictions = normalize_ipromp_predictions(
             config,
+            mapping_csv=mapping_csv,
+            validation_predictions_csv=validation_predictions_csv,
+            test_predictions_csv=test_predictions_csv,
+            train_predictions_csv=train_predictions_csv,
+            predictions_csv=predictions_csv,
+            base_dir=base_dir,
+        )
+        return _evaluate_external_prediction_frame(
+            config,
+            predictions=predictions,
             base_dir=base_dir,
             output_dir=out_dir,
-            reason=reason,
-            extra=manifest_extra,
+            model_metadata={
+                "adapter_mode": params.get("adapter_mode", "external_fasta_prediction"),
+                "species_id": params.get("species_id"),
+                "species_name": params.get("species_name"),
+                "mapping_csv": str(mapping_csv),
+                "validation_predictions_csv": str(validation_predictions_csv) if validation_predictions_csv else None,
+                "test_predictions_csv": str(test_predictions_csv) if test_predictions_csv else None,
+                "train_predictions_csv": str(train_predictions_csv) if train_predictions_csv else None,
+                "predictions_csv": str(predictions_csv) if predictions_csv else None,
+            },
         )
-    except Exception as exc:
-        if not allow_skip:
-            raise
-        return _write_skipped_result(config, base_dir=base_dir, output_dir=out_dir, reason=str(exc))
+
+    from seqtrainer.adapters.ipromp import prepare_ipromp_inputs
+
+    frames = load_predefined_split_frames(config, base_dir=base_dir)
+    split_summary = summarize_split_frames(config, frames)
+    imbalance_policy = decide_imbalance_policy(split_summary)
+    prepared = prepare_ipromp_inputs(config, base_dir=base_dir, output_dir=out_dir)
+    reason = "FASTA prepared; run official iPro-MP externally and provide validation/test prediction CSVs."
+    manifest_extra = {
+        "status": "skipped",
+        "skip_reason": reason,
+        "fasta_paths": {split: str(path) for split, path in prepared.fasta_paths.items()},
+        "mapping_csv": str(prepared.mapping_csv),
+        "command_script": str(prepared.command_script),
+        "external_prediction_schema": str(prepared.prediction_schema),
+        "imbalance_policy": {
+            "apply_to_training": imbalance_policy.apply_to_training,
+            "strategy": imbalance_policy.strategy,
+            "class_counts": imbalance_policy.class_counts,
+            "imbalance_ratio": imbalance_policy.imbalance_ratio,
+            "reason": imbalance_policy.reason,
+        },
+    }
+    return _write_skipped_result(
+        config,
+        base_dir=base_dir,
+        output_dir=out_dir,
+        reason=reason,
+        extra=manifest_extra,
+    )
 
 
 def _evaluate_external_predictions(

@@ -538,6 +538,35 @@ def test_dnabert2_tokenization_only_mode_never_reports_classifier_metrics(tmp_pa
         )
 
 
+def test_dnabert2_unknown_mode_is_rejected_before_model_loading(tmp_path):
+    torch = pytest.importorskip("torch")
+    from seqtrainer.torch.dnabert2_benchmark import run_dnabert2_csv_splits
+
+    config = load_benchmark_config(CONFIG_DIR / "dnabert2_frozen.toml")
+    _write_configured_split_files(config, tmp_path)
+    config = replace(
+        config,
+        model=replace(config.model, params={**dict(config.model.params), "mode": "full_finetuning"}),
+    )
+
+    with pytest.raises(ValueError, match="Unsupported DNABERT2 model.params.mode"):
+        run_dnabert2_csv_splits(config, base_dir=tmp_path, output_dir=tmp_path / "dnabert2_bad_mode")
+
+
+def test_dnabert2_data_loading_errors_are_not_silently_skipped(tmp_path):
+    config = load_benchmark_config(CONFIG_DIR / "dnabert2_frozen.toml")
+
+    with pytest.raises(FileNotFoundError):
+        run_benchmark(config, base_dir=tmp_path, output_dir=tmp_path / "dnabert2_missing_data")
+
+
+def test_ipromp_data_loading_errors_are_not_silently_skipped(tmp_path):
+    config = load_benchmark_config(CONFIG_DIR / "ipromp_external.toml")
+
+    with pytest.raises(FileNotFoundError):
+        run_benchmark(config, base_dir=tmp_path, output_dir=tmp_path / "ipromp_missing_data")
+
+
 def test_dnabert2_frozen_embedding_baseline_uses_encoder_and_caches_embeddings(tmp_path):
     torch = pytest.importorskip("torch")
     from seqtrainer.torch.dnabert2_benchmark import run_dnabert2_csv_splits
@@ -565,6 +594,30 @@ def test_dnabert2_frozen_embedding_baseline_uses_encoder_and_caches_embeddings(t
     history = pd.read_csv(tmp_path / "dnabert2_frozen" / "history.csv")
     assert {"train_loss", "validation_loss", "validation_mcc", "learning_rate"}.issubset(history.columns)
     assert result.manifest["model"]["metadata"]["embedding_cache_dir"]
+
+
+def test_dnabert2_frozen_embedding_records_configured_precision(tmp_path):
+    torch = pytest.importorskip("torch")
+    from seqtrainer.torch.dnabert2_benchmark import run_dnabert2_csv_splits
+
+    config = load_benchmark_config(CONFIG_DIR / "dnabert2_frozen.toml")
+    _write_configured_split_files(config, tmp_path)
+    config = replace(
+        config,
+        environment=replace(config.environment, precision="bf16"),
+        training=replace(config.training, max_epochs=1, batch_size=2, learning_rate=0.01),
+        model=replace(config.model, params={**dict(config.model.params), "classifier_dropout": 0.0}),
+    )
+
+    result = run_dnabert2_csv_splits(
+        config,
+        base_dir=tmp_path,
+        output_dir=tmp_path / "dnabert2_bf16",
+        tokenizer=_TorchStubTokenizer(torch),
+        encoder=_TinyEncoder(torch),
+    )
+
+    assert result.manifest["model"]["metadata"]["precision"] == "bf16"
 
 
 def test_dnabert2_frozen_embedding_baseline_honors_zero_epochs(tmp_path):
@@ -1005,6 +1058,31 @@ def test_benchmark_compare_cli_and_helper_rank_test_metrics(tmp_path, capsys):
     assert exit_code == 0
     assert "comparison_summary" in captured.out
     assert (tmp_path / "comparison_cli" / "comparison_summary.md").exists()
+
+
+def test_benchmark_compare_ignores_skipped_artifact_with_stale_metrics(tmp_path):
+    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
+    completed = tmp_path / "completed"
+    skipped = tmp_path / "skipped"
+
+    for out_dir, status, mcc in ((completed, "completed", 0.8), (skipped, "skipped", 0.99)):
+        manifest = build_run_manifest(
+            config,
+            split_summary={"test": {"rows": 2, "class_counts": {"0": 1, "1": 1}}},
+            threshold=0.5,
+            extra={"status": status},
+        )
+        write_benchmark_outputs(
+            out_dir,
+            manifest=manifest,
+            metrics={"test": {"mcc": mcc, "auprc": mcc, "accuracy": mcc}},
+            config=config,
+        )
+
+    comparison = pd.read_csv(
+        compare_benchmark_outputs([completed, skipped], output_dir=tmp_path / "comparison")['comparison_metrics']
+    )
+    assert set(comparison["artifact_dir"]) == {str(completed)}
 
 
 def test_imbalance_policy_uses_training_split_only():

@@ -148,7 +148,7 @@ def run_dnabert2_csv_splits(
 
     optimizer = torch.optim.AdamW(
         (p for p in model.parameters() if p.requires_grad),
-        lr=config.training.learning_rate or 1e-4,
+        lr=1e-4 if config.training.learning_rate is None else float(config.training.learning_rate),
         weight_decay=float(train_params.get("weight_decay", 0.01)),
     )
     max_epochs = 3 if config.training.max_epochs is None else int(config.training.max_epochs)
@@ -375,7 +375,7 @@ def _run_frozen_embedding_classifier(
     )
     optimizer = torch.optim.AdamW(
         classifier.parameters(),
-        lr=config.training.learning_rate or 1e-3,
+        lr=1e-3 if config.training.learning_rate is None else float(config.training.learning_rate),
         weight_decay=float(train_params.get("weight_decay", 0.01)),
     )
     max_epochs = 20 if config.training.max_epochs is None else int(config.training.max_epochs)
@@ -861,13 +861,17 @@ def _load_dnabert2_from_state_dict(
         local_files_only=local_files_only,
         revision=revision,
     )
-    try:
-        state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-    except TypeError:  # pragma: no cover - older torch compatibility
-        state_dict = torch.load(checkpoint_path, map_location="cpu")
+    state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
     if isinstance(state_dict, dict) and "state_dict" in state_dict:
         state_dict = state_dict["state_dict"]
-    encoder.load_state_dict(state_dict, strict=False)
+    incompatible = encoder.load_state_dict(state_dict, strict=False)
+    missing = [key for key in incompatible.missing_keys if "pooler" not in key]
+    unexpected = [key for key in incompatible.unexpected_keys if "pooler" not in key]
+    if missing or unexpected:
+        raise BenchmarkSkipped(
+            "DNABERT2 fallback checkpoint does not match the encoder. "
+            f"Missing keys: {missing[:5]}; unexpected keys: {unexpected[:5]}"
+        )
     return encoder
 
 

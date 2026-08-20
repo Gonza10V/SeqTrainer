@@ -271,7 +271,7 @@ def test_ai_x_bio_unsplit_duplicates_stay_in_one_split():
     rows.append({"sequence": "ACGT0", "label": 0, "id": "duplicate"})
     frames, strategy = split_ai_x_bio_frame(pd.DataFrame(rows), seed=42)
 
-    assert strategy == "seeded_stratified_group_70_15_15"
+    assert strategy == "seeded_stratified_70_15_15"
     locations = [
         split
         for split, frame in frames.items()

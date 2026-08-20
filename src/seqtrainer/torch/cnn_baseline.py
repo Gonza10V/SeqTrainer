@@ -74,6 +74,11 @@ class CnnCsvSplitConfig:
     early_stopping_patience: int | None = None
     model_variant: str = "tiny"
     dropout: float = 0.25
+    input_channels: int = 5
+    conv_channels: tuple[int, ...] | None = None
+    kernel_sizes: tuple[int, ...] | None = None
+    pooling: str | None = None
+    classifier_hidden: int | None = None
     class_weighting: bool = False
     threshold_strategy: str = "validation_mcc"
     device: str = "cpu"
@@ -96,21 +101,39 @@ class CnnBaselineResult:
 class TinyDNACNN(nn.Module):
     """Small Conv1D classifier matching the tutorial notebook architecture."""
 
-    def __init__(self, channels: int = 5, n_classes: int = 2) -> None:
+    def __init__(
+        self,
+        channels: int = 5,
+        n_classes: int = 2,
+        conv_channels: tuple[int, ...] | None = None,
+        kernel_sizes: tuple[int, ...] | None = None,
+        pooling: str | None = None,
+        classifier_hidden: int | None = None,
+    ) -> None:
         super().__init__()
+        conv_channels = tuple(conv_channels or (32, 64))
+        kernel_sizes = tuple(kernel_sizes or (7, 5))
+        pooling = pooling or "adaptive_max"
+        classifier_hidden = classifier_hidden or 32
+        if len(conv_channels) != 2 or len(kernel_sizes) != 2:
+            raise ValueError("Tiny CNN requires two conv_channels and two kernel_sizes")
+        if pooling != "adaptive_max":
+            raise ValueError("Tiny CNN only supports pooling='adaptive_max'")
+        first, second = conv_channels
+        first_kernel, second_kernel = kernel_sizes
         self.backbone = nn.Sequential(
-            nn.Conv1d(channels, 32, kernel_size=7, padding=3),
+            nn.Conv1d(channels, first, kernel_size=first_kernel, padding=first_kernel // 2),
             nn.ReLU(),
             nn.MaxPool1d(kernel_size=2),
-            nn.Conv1d(32, 64, kernel_size=5, padding=2),
+            nn.Conv1d(first, second, kernel_size=second_kernel, padding=second_kernel // 2),
             nn.ReLU(),
             nn.AdaptiveMaxPool1d(1),
         )
         self.head = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(64, 32),
+            nn.Linear(second, classifier_hidden),
             nn.ReLU(),
-            nn.Linear(32, n_classes),
+            nn.Linear(classifier_hidden, n_classes),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -120,37 +143,56 @@ class TinyDNACNN(nn.Module):
 class EnhancedDNACNN(nn.Module):
     """Stronger Conv1D classifier for controlled CNN baseline improvements."""
 
-    def __init__(self, channels: int = 5, n_classes: int = 2, dropout: float = 0.25) -> None:
+    def __init__(
+        self,
+        channels: int = 5,
+        n_classes: int = 2,
+        dropout: float = 0.25,
+        conv_channels: tuple[int, ...] | None = None,
+        kernel_sizes: tuple[int, ...] | None = None,
+        pooling: str | None = None,
+        classifier_hidden: int | None = None,
+    ) -> None:
         super().__init__()
+        conv_channels = tuple(conv_channels or (64, 128))
+        kernel_sizes = tuple(kernel_sizes or (15, 7, 7, 7))
+        pooling = pooling or "adaptive_max_plus_avg"
+        classifier_hidden = classifier_hidden or 128
+        if len(conv_channels) != 2 or len(kernel_sizes) != 4:
+            raise ValueError("Enhanced CNN requires two conv_channels and four kernel_sizes")
+        if pooling != "adaptive_max_plus_avg":
+            raise ValueError("Enhanced CNN only supports pooling='adaptive_max_plus_avg'")
+        first, second = conv_channels
+        first_kernel, second_kernel, third_kernel, fourth_kernel = kernel_sizes
         self.features = nn.Sequential(
-            nn.Conv1d(channels, 64, kernel_size=15, padding=7),
-            nn.BatchNorm1d(64),
+            nn.Conv1d(channels, first, kernel_size=first_kernel, padding=first_kernel // 2),
+            nn.BatchNorm1d(first),
             nn.GELU(),
-            nn.Conv1d(64, 64, kernel_size=7, padding=3),
-            nn.BatchNorm1d(64),
-            nn.GELU(),
-            nn.MaxPool1d(kernel_size=2),
-            nn.Dropout(dropout * 0.5),
-            nn.Conv1d(64, 128, kernel_size=7, padding=6, dilation=2),
-            nn.BatchNorm1d(128),
-            nn.GELU(),
-            nn.Conv1d(128, 128, kernel_size=7, padding=12, dilation=4),
-            nn.BatchNorm1d(128),
+            nn.Conv1d(first, first, kernel_size=second_kernel, padding=second_kernel // 2),
+            nn.BatchNorm1d(first),
             nn.GELU(),
             nn.MaxPool1d(kernel_size=2),
             nn.Dropout(dropout * 0.5),
-            nn.Conv1d(128, 256, kernel_size=3, padding=1),
-            nn.BatchNorm1d(256),
+            nn.Conv1d(first, second, kernel_size=third_kernel, padding=third_kernel - 1, dilation=2),
+            nn.BatchNorm1d(second),
+            nn.GELU(),
+            nn.Conv1d(second, second, kernel_size=fourth_kernel, padding=2 * (fourth_kernel - 1), dilation=4),
+            nn.BatchNorm1d(second),
+            nn.GELU(),
+            nn.MaxPool1d(kernel_size=2),
+            nn.Dropout(dropout * 0.5),
+            nn.Conv1d(second, second * 2, kernel_size=3, padding=1),
+            nn.BatchNorm1d(second * 2),
             nn.GELU(),
         )
         self.avg_pool = nn.AdaptiveAvgPool1d(1)
         self.max_pool = nn.AdaptiveMaxPool1d(1)
         self.head = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(512, 128),
+            nn.Linear(second * 4, classifier_hidden),
             nn.GELU(),
             nn.Dropout(dropout),
-            nn.Linear(128, n_classes),
+            nn.Linear(classifier_hidden, n_classes),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -410,10 +452,25 @@ def _load_csv_split_frames(cfg: CnnCsvSplitConfig) -> dict[str, pd.DataFrame]:
 
 
 def _build_csv_model(cfg: CnnCsvSplitConfig) -> nn.Module:
+    if cfg.input_channels != 5:
+        raise ValueError("CNN one-hot preprocessing produces exactly 5 input channels")
     if cfg.model_variant == "tiny":
-        return TinyDNACNN()
+        return TinyDNACNN(
+            channels=cfg.input_channels,
+            conv_channels=cfg.conv_channels,
+            kernel_sizes=cfg.kernel_sizes,
+            pooling=cfg.pooling,
+            classifier_hidden=cfg.classifier_hidden,
+        )
     if cfg.model_variant == "enhanced":
-        return EnhancedDNACNN(dropout=cfg.dropout)
+        return EnhancedDNACNN(
+            channels=cfg.input_channels,
+            dropout=cfg.dropout,
+            conv_channels=cfg.conv_channels,
+            kernel_sizes=cfg.kernel_sizes,
+            pooling=cfg.pooling,
+            classifier_hidden=cfg.classifier_hidden,
+        )
     raise ValueError("model_variant must be either 'tiny' or 'enhanced'")
 
 

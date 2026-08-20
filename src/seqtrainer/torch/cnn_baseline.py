@@ -722,7 +722,7 @@ def _csv_model_metadata(config: CnnCsvSplitConfig) -> dict[str, Any]:
                 "Flatten",
                 f"Linear({second}, {classifier_hidden})",
                 "ReLU",
-                "Linear(classifier_hidden, 2)",
+                f"Linear({classifier_hidden}, 2)",
             ],
         }
 

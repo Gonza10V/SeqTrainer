@@ -778,14 +778,26 @@ def _write_outputs(
     checkpoint_state: dict[str, Any] | None = None,
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
+    save_json = bool(getattr(cfg, "save_json", True))
+    save_csv = bool(getattr(cfg, "save_csv", True))
+    save_predictions = bool(getattr(cfg, "save_predictions", True))
+    stale_artifacts = (
+        (("config.json", "metrics.json"), save_json),
+        (("history.csv", "metrics.csv"), save_csv),
+        (("predictions.csv",), save_predictions),
+    )
+    for filenames, enabled in stale_artifacts:
+        if not enabled:
+            for filename in filenames:
+                (output_dir / filename).unlink(missing_ok=True)
     (output_dir / "manifest.json").write_text(json.dumps(_json_ready(manifest), indent=2), encoding="utf-8")
-    if getattr(cfg, "save_json", True):
+    if save_json:
         (output_dir / "config.json").write_text(json.dumps(_json_ready(asdict(cfg)), indent=2), encoding="utf-8")
         (output_dir / "metrics.json").write_text(json.dumps(_json_ready(metrics), indent=2), encoding="utf-8")
-    if getattr(cfg, "save_csv", True):
+    if save_csv:
         pd.DataFrame(history).to_csv(output_dir / "history.csv", index=False)
         pd.DataFrame(_flatten_metrics(metrics)).to_csv(output_dir / "metrics.csv", index=False)
-    if getattr(cfg, "save_predictions", True):
+    if save_predictions:
         pd.concat(prediction_frames, ignore_index=True).to_csv(output_dir / "predictions.csv", index=False)
     if checkpoint_state is not None:
         uses_validation_checkpoint = isinstance(cfg, CnnCsvSplitConfig) and (

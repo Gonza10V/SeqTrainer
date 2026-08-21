@@ -270,3 +270,44 @@ def test_cnn_rejects_unsupported_loss():
 
     with pytest.raises(ConfigValidationError, match="only implement"):
         parse_benchmark_config(raw, source="cnn-loss.toml")
+
+
+def test_cnn_rejects_unimplemented_precision():
+    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
+    raw = {
+        "experiment": config.experiment.__dict__,
+        "dataset": {**config.dataset.__dict__, "split_files": dict(config.dataset.split_files)},
+        "label": config.label.__dict__,
+        "split": config.split.__dict__,
+        "preprocessing": config.preprocessing.__dict__,
+        "model": config.model.__dict__,
+        "training": config.training.__dict__,
+        "evaluation": {**config.evaluation.__dict__, "metrics": list(config.evaluation.metrics)},
+        "outputs": config.outputs.__dict__,
+        "environment": {**config.environment.__dict__, "precision": "fp16"},
+    }
+
+    with pytest.raises(ConfigValidationError, match="only implement"):
+        parse_benchmark_config(raw, source="cnn-precision.toml")
+
+
+def test_dnabert_rejects_unsupported_pooling():
+    config = load_benchmark_config(CONFIG_DIR / "dnabert2_frozen.toml")
+    raw = {
+        "experiment": config.experiment.__dict__,
+        "dataset": {**config.dataset.__dict__, "split_files": dict(config.dataset.split_files)},
+        "label": config.label.__dict__,
+        "split": config.split.__dict__,
+        "preprocessing": config.preprocessing.__dict__,
+        "model": {
+            **config.model.__dict__,
+            "params": {**config.model.params, "pooling": "median"},
+        },
+        "training": config.training.__dict__,
+        "evaluation": {**config.evaluation.__dict__, "metrics": list(config.evaluation.metrics)},
+        "outputs": config.outputs.__dict__,
+        "environment": config.environment.__dict__,
+    }
+
+    with pytest.raises(ConfigValidationError, match="pooling"):
+        parse_benchmark_config(raw, source="dnabert-pooling.toml")

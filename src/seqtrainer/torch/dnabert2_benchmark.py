@@ -167,7 +167,7 @@ def run_dnabert2_csv_splits(
     history: list[dict[str, float]] = []
     best_selection_score = float("-inf")
     best_threshold = 0.5
-    selection_metric = _selection_metric_for_strategy(config.evaluation.threshold_strategy)
+    selection_metric = str(config.evaluation.primary_metric).lower()
     patience = int(train_params.get("early_stopping_patience", 3))
     bad_epochs = 0
     out_dir = Path(output_dir or config.outputs.output_dir)
@@ -195,7 +195,7 @@ def run_dnabert2_csv_splits(
             torch,
             precision=precision,
         )
-        threshold, validation_selection_score, selection_metric = _select_dnabert2_threshold(
+        threshold, _, _ = _select_dnabert2_threshold(
             config,
             validation["label"],
             validation["probability"],
@@ -204,6 +204,10 @@ def run_dnabert2_csv_splits(
             validation["label"],
             validation["probability"],
             threshold,
+        )
+        validation_selection_score = _primary_metric_score(
+            validation_metrics,
+            selection_metric,
         )
         validation_mcc = float(validation_metrics["mcc"])
         history.append(
@@ -230,7 +234,7 @@ def run_dnabert2_csv_splits(
 
     if not checkpoint_path.exists():
         raise RuntimeError("DNABERT2 fine-tuning did not produce a checkpoint")
-    model.load_state_dict(torch.load(checkpoint_path, map_location="cpu"))
+    model.load_state_dict(torch.load(checkpoint_path, map_location="cpu", weights_only=True))
     predictions = {
         split: _predict(
             model,
@@ -387,7 +391,7 @@ def _run_frozen_embedding_classifier(
     best_selection_score = float("-inf")
     best_auprc = float("-inf")
     best_threshold = 0.5
-    selection_metric = _selection_metric_for_strategy(config.evaluation.threshold_strategy)
+    selection_metric = str(config.evaluation.primary_metric).lower()
     bad_epochs = 0
     history: list[dict[str, float]] = []
 
@@ -418,7 +422,7 @@ def _run_frozen_embedding_classifier(
             torch,
             precision=precision,
         )
-        threshold, validation_selection_score, selection_metric = _select_dnabert2_threshold(
+        threshold, _, _ = _select_dnabert2_threshold(
             config,
             validation["label"],
             validation["probability"],
@@ -427,6 +431,10 @@ def _run_frozen_embedding_classifier(
             validation["label"],
             validation["probability"],
             threshold,
+        )
+        validation_selection_score = _primary_metric_score(
+            validation_metrics,
+            selection_metric,
         )
         validation_mcc = float(validation_metrics["mcc"])
         validation_auprc = validation_metrics["auprc"]
@@ -585,6 +593,16 @@ def _normalize_binary_labels(config: BenchmarkConfig, frame: pd.DataFrame) -> An
         )
 
     return raw_labels.map({negative_label: 0, positive_label: 1}).to_numpy(dtype=np.float32)
+
+
+def _primary_metric_score(metrics: dict[str, Any], metric: str) -> float:
+    """Return the declared primary validation metric for checkpoint selection."""
+    value = metrics.get(metric)
+    if isinstance(value, dict) or value is None:
+        raise ValueError(
+            f"DNABERT2 primary metric {metric!r} is not a scalar classification metric."
+        )
+    return float(value)
 
 
 def _selection_metric_for_strategy(strategy: str) -> str:

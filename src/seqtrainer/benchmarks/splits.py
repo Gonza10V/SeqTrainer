@@ -69,23 +69,41 @@ def _reject_cross_split_duplicates(
 ) -> None:
     """Reject normalized sequences shared by different predefined splits."""
     sequence_field = config.dataset.sequence_field
-    seen: dict[str, str] = {}
+    seen: dict[str, tuple[str, Any]] = {}
     duplicates: list[tuple[str, str, str]] = []
+    conflicting_labels: list[dict[str, Any]] = []
+    label_field = config.dataset.label_field
     for split, frame in frames.items():
         normalized = (
             frame[sequence_field]
             .astype(str)
             .str.strip()
             .str.upper()
+            .str.replace("U", "T", regex=False)
             .str.replace(r"\s+", "", regex=True)
         )
-        for sequence in normalized:
-            previous_split = seen.get(sequence)
-            if previous_split is not None and previous_split != split:
+        for sequence, label in zip(normalized, frame[label_field], strict=True):
+            previous = seen.get(sequence)
+            if previous is None:
+                seen[sequence] = (split, label)
+                continue
+            previous_split, previous_label = previous
+            if previous_label != label:
+                conflicting_labels.append(
+                    {
+                        "sequence": sequence,
+                        "splits": [previous_split, split],
+                        "labels": [previous_label, label],
+                    }
+                )
+            elif previous_split != split:
                 duplicates.append((sequence, previous_split, split))
-            else:
-                seen[sequence] = split
 
+    if conflicting_labels:
+        raise ValueError(
+            "Predefined splits contain conflicting labels for the same normalized sequence; "
+            f"examples: {conflicting_labels[:3]}"
+        )
     if duplicates:
         examples = [
             {"sequence": sequence, "splits": [left, right]}

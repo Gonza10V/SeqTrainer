@@ -280,6 +280,6 @@ This is a useful CNN-v2 improvement, but the scores are still modest for promote
 
 `cnn_reference_benchmark_colab.ipynb` remains the reference CNN baseline.
 
-`cnn_v2_final_benchmark_colab.ipynb` becomes a CNN-v2 candidate only if it improves validation MCC and then also improves held-out test MCC/AUPRC against the reference row.
+`cnn_v2_final_benchmark_colab.ipynb` is selected or rejected using validation data only. The decision metric is validation MCC; validation AUPRC may be reported as a supporting measure, but held-out test values must not gate the choice.
 
-If CNN-v2 does not improve these metrics, keep the reference CNN and move to the DNABERT2 benchmark on the same predefined split. If CNN-v2 does improve, keep it as the CNN baseline but still proceed to DNABERT2 and iPro-MP to test whether pretrained sequence models provide stronger promoter prediction performance.
+After the CNN-v2 decision is locked, report test MCC, test AUPRC, and the supporting test metrics once on the untouched test split. Continue to DNABERT2 and iPro-MP on the same predefined split so their final held-out results remain comparable.

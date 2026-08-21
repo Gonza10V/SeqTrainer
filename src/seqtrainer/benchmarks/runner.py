@@ -67,6 +67,8 @@ def _run_cnn(
 ) -> BenchmarkRunResult:
     from seqtrainer.torch.cnn_baseline import CnnCsvSplitConfig, run_cnn_csv_splits
 
+    # Validate the same shared split contract used by the other model families.
+    load_predefined_split_frames(config, base_dir=base_dir)
     paths = _split_paths(config, base_dir)
     params = dict(config.training.params)
     model_params = dict(config.model.params)

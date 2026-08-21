@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import random
 from copy import deepcopy
@@ -58,6 +59,9 @@ class CnnCsvSplitConfig:
     dataset_name: str = "ep_dnabert2_genomic_order"
     source_accession: str = "GSE144621"
     source_url: str = "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE144621"
+    dataset_version: str = ""
+    id_field: str | None = None
+    manifest_split_files: dict[str, str] | None = None
     sequence_field: str = "sequence"
     label_field: str = "label"
     positive_label: Any = 1
@@ -433,6 +437,15 @@ def _load_csv_split_frames(cfg: CnnCsvSplitConfig) -> dict[str, pd.DataFrame]:
             raise ValueError(f"{path} is missing required column(s): {sorted(missing)}")
         if frame.empty:
             raise ValueError(f"{path} is empty")
+        nullable_columns = [
+            column
+            for column in (cfg.sequence_field, cfg.label_field)
+            if frame[column].isna().any()
+        ]
+        if nullable_columns:
+            raise ValueError(
+                f"{path} contains null values in required columns: {nullable_columns}"
+            )
         raw_labels = frame[cfg.label_field]
         known_labels = raw_labels.isin([cfg.negative_label, cfg.positive_label])
         if not known_labels.all():
@@ -776,6 +789,24 @@ def _csv_model_metadata(config: CnnCsvSplitConfig) -> dict[str, Any]:
     raise ValueError("model_variant must be either 'tiny' or 'enhanced'")
 
 
+def _csv_content_sha256(path: Path, cfg: CnnCsvSplitConfig) -> str:
+    """Hash the ordered raw CSV rows used by the shared comparison contract."""
+    frame = pd.read_csv(path)
+    columns = [cfg.sequence_field, cfg.label_field]
+    if cfg.id_field and cfg.id_field in frame.columns:
+        columns.append(cfg.id_field)
+    rows = [
+        ["" if pd.isna(value) else str(value) for value in row]
+        for row in frame[columns].itertuples(index=False, name=None)
+    ]
+    payload = json.dumps(
+        {"columns": columns, "rows": rows},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def _csv_manifest(
     cfg: CnnCsvSplitConfig,
     frames: dict[str, pd.DataFrame],
@@ -785,23 +816,33 @@ def _csv_manifest(
     validation_score: float,
 ) -> dict[str, Any]:
     split_summary = {}
+    split_paths = {
+        "train": Path(cfg.train_csv),
+        "validation": Path(cfg.validation_csv),
+        "test": Path(cfg.test_csv),
+    }
     for split, frame in frames.items():
         counts = frame[cfg.label_field].astype(int).value_counts().sort_index().to_dict()
         split_summary[split] = {
             "rows": int(len(frame)),
             "class_counts": {str(key): int(value) for key, value in counts.items()},
+            "content_sha256": _csv_content_sha256(split_paths[split], cfg),
         }
 
+    configured_split_files = cfg.manifest_split_files or {
+        split: str(path) for split, path in split_paths.items()
+    }
     return {
         "task": "csv_split_cnn_baseline",
         "dataset": {
             "name": cfg.dataset_name,
             "source_accession": cfg.source_accession,
             "source_url": cfg.source_url,
-            "split_files": {
-                "train": str(cfg.train_csv),
-                "validation": str(cfg.validation_csv),
-                "test": str(cfg.test_csv),
+            "version": cfg.dataset_version,
+            "split_files": configured_split_files,
+            "split_summary": split_summary,
+            "split_content_sha256": {
+                split: values["content_sha256"] for split, values in split_summary.items()
             },
             "sequence_field": cfg.sequence_field,
             "label_field": cfg.label_field,

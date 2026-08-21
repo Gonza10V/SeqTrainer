@@ -16,6 +16,7 @@ from .config import BenchmarkConfig
 def build_run_manifest(
     config: BenchmarkConfig,
     *,
+    repo_dir: str | Path | None = None,
     split_summary: dict[str, Any] | None = None,
     threshold: float | None = None,
     model_metadata: dict[str, Any] | None = None,
@@ -51,7 +52,7 @@ def build_run_manifest(
         "environment": {
             **asdict(config.environment),
             "runtime": runtime_metadata(),
-            "git": git_metadata(),
+            "git": git_metadata(repo_dir),
         },
     }
     if extra:

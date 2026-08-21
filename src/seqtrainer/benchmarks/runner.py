@@ -315,6 +315,7 @@ def _evaluate_external_predictions(
 
     manifest = build_run_manifest(
         config,
+        repo_dir=base_dir,
         split_summary=split_summary,
         threshold=threshold,
         model_metadata=model_metadata or {},
@@ -392,6 +393,7 @@ def _evaluate_external_prediction_frame(
 
     manifest = build_run_manifest(
         config,
+        repo_dir=base_dir,
         split_summary=split_summary,
         threshold=threshold,
         model_metadata=model_metadata or {},
@@ -458,6 +460,7 @@ def _write_skipped_result(
 
     manifest = build_run_manifest(
         config,
+        repo_dir=base_dir,
         split_summary=split_summary,
         threshold=None,
         model_metadata={"status": "skipped"},

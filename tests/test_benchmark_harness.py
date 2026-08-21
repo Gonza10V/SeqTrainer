@@ -1436,6 +1436,30 @@ def test_predefined_split_loader_rejects_cross_split_duplicate_sequences(tmp_pat
         load_predefined_split_frames(config, base_dir=tmp_path)
 
 
+
+
+
+def test_predefined_split_loader_normalizes_uracil_and_rejects_conflicting_labels(tmp_path):
+    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
+    split_dir = tmp_path / "data" / "promoter_classification"
+    split_dir.mkdir(parents=True)
+    paths = {
+        "train": "train_EP_DNA_BERT2_genomic_order.csv",
+        "validation": "eval_EP_DNA_BERT2_genomic_order.csv",
+        "test": "test_EP_DNA_BERT2_genomic_order.csv",
+    }
+    for split, filename in paths.items():
+        sequence = "AUGC" if split == "train" else ("ATGC" if split == "validation" else "TGCA")
+        label = 0 if split != "validation" else 1
+        pd.DataFrame({"sequence": [sequence], "label": [label]}).to_csv(
+            split_dir / filename,
+            index=False,
+        )
+
+    with pytest.raises(ValueError, match="conflicting labels"):
+        load_predefined_split_frames(config, base_dir=tmp_path)
+
+
 def test_artifact_writer_removes_stale_disabled_outputs(tmp_path):
     config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
     config = replace(

@@ -135,14 +135,22 @@ def write_ipromp_run_commands(
     preprocessing = dict(config.preprocessing.params)
     configured_max_length = preprocessing.get("model_max_length", preprocessing.get("max_length"))
     model_max_length = params.get("max_length")
-    if configured_max_length is not None and model_max_length is not None and int(configured_max_length) != int(model_max_length):
+    if (
+        configured_max_length is not None
+        and model_max_length is not None
+        and int(configured_max_length) != int(model_max_length)
+    ):
         raise ValueError(
             "iPro-MP max length is configured differently in preprocessing.params and model.params."
         )
     max_length = int(configured_max_length if configured_max_length is not None else (model_max_length or 128))
     configured_kmer_size = preprocessing.get("kmer_size")
     model_kmer_size = params.get("kmer_size")
-    if configured_kmer_size is not None and model_kmer_size is not None and int(configured_kmer_size) != int(model_kmer_size):
+    if (
+        configured_kmer_size is not None
+        and model_kmer_size is not None
+        and int(configured_kmer_size) != int(model_kmer_size)
+    ):
         raise ValueError(
             "iPro-MP k-mer size is configured differently in preprocessing.params and model.params."
         )

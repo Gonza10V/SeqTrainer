@@ -609,12 +609,6 @@ def _primary_metric_score(metrics: dict[str, Any], metric: str) -> float:
     return float(value)
 
 
-def _selection_metric_for_strategy(strategy: str) -> str:
-    """Return the validation metric used for checkpoint selection."""
-    metric = threshold_metric_from_strategy(strategy)
-    return metric or "mcc"
-
-
 def _select_dnabert2_threshold(
     config: BenchmarkConfig,
     labels: np.ndarray,

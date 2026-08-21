@@ -82,7 +82,7 @@ def _reject_cross_split_duplicates(
             .str.replace("U", "T", regex=False)
             .str.replace(r"\s+", "", regex=True)
         )
-        for sequence, label in zip(normalized, frame[label_field], strict=True):
+        for sequence, label in zip(normalized, frame[label_field]):
             previous = seen.get(sequence)
             if previous is None:
                 seen[sequence] = (split, label)

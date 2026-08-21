@@ -285,7 +285,15 @@ def _evaluate_external_predictions(
                 "`prediction`, `predicted_label`, `pred`, or `label_pred`."
             )
         threshold = None
-        predictions["prediction"] = predictions[prediction_column].astype(int)
+        if bool(config.model.params.get("requires_probability_for_primary_comparison", False)):
+            raise ValueError(
+                "This iPro-MP configuration requires probability predictions for primary comparison; "
+                "hard-label-only output cannot satisfy it."
+            )
+        predictions["prediction"] = _validated_hard_predictions(
+            predictions[prediction_column],
+            context="external iPro-MP predictions",
+        )
         predictions["threshold"] = pd.Series([None] * len(predictions), dtype="object")
         warning = (
             "Only hard labels were provided by the external model, so AUROC/AUPRC and validation threshold "
@@ -354,7 +362,15 @@ def _evaluate_external_prediction_frame(
         if prediction_column is None:
             raise ValueError("iPro-MP predictions require either probability or hard-label prediction columns.")
         threshold = None
-        predictions["prediction"] = predictions[prediction_column].astype(int)
+        if bool(config.model.params.get("requires_probability_for_primary_comparison", False)):
+            raise ValueError(
+                "This iPro-MP configuration requires probability predictions for primary comparison; "
+                "hard-label-only output cannot satisfy it."
+            )
+        predictions["prediction"] = _validated_hard_predictions(
+            predictions[prediction_column],
+            context="external iPro-MP predictions",
+        )
         predictions["threshold"] = pd.Series([None] * len(predictions), dtype="object")
         warning = (
             "Only hard labels were provided by the external iPro-MP model, so AUROC/AUPRC and validation "
@@ -404,6 +420,21 @@ def _prediction_label_column(predictions: pd.DataFrame) -> str | None:
         if column in predictions.columns:
             return column
     return None
+
+
+def _validated_hard_predictions(values: pd.Series, *, context: str) -> pd.Series:
+    """Validate hard predictions instead of silently truncating arbitrary values."""
+    numeric = pd.to_numeric(values, errors="coerce")
+    if (
+        numeric.isna().any()
+        or not numeric.eq(numeric.round()).all()
+        or not numeric.isin([0, 1]).all()
+    ):
+        raise ValueError(
+            f"{context} hard labels must be binary integer values 0 or 1; "
+            f"received examples: {values.drop_duplicates().tolist()[:5]}"
+        )
+    return numeric.astype(int)
 
 
 def _write_skipped_result(

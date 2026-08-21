@@ -143,6 +143,7 @@ def run_dnabert2_csv_splits(
             torch=torch,
             nn=nn,
             run_started=run_started,
+            base_dir=base_dir,
             output_dir=output_dir,
         )
 
@@ -269,6 +270,7 @@ def run_dnabert2_csv_splits(
 
     manifest = build_run_manifest(
         config,
+        repo_dir=base_dir,
         split_summary=split_summary,
         threshold=best_threshold,
         model_metadata={
@@ -326,6 +328,7 @@ def _run_frozen_embedding_classifier(
     torch: Any,
     nn: Any,
     run_started: float,
+    base_dir: str | Path | None,
     output_dir: str | Path | None,
 ) -> BenchmarkRunResult:
     from torch.utils.data import DataLoader, TensorDataset
@@ -506,6 +509,7 @@ def _run_frozen_embedding_classifier(
     checkpoint_path = out_dir / "checkpoints" / "best_model.pt"
     manifest = build_run_manifest(
         config,
+        repo_dir=base_dir,
         split_summary=split_summary,
         threshold=best_threshold,
         model_metadata={

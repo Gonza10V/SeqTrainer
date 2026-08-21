@@ -166,10 +166,9 @@ def test_benchmark_manifest_cli_writes_shared_manifest(tmp_path, capsys):
         "test_EP_DNA_BERT2_genomic_order.csv": ["ACAC", "GTGT"],
     }
     for filename, sequences in split_sequences.items():
-        pd.DataFrame({"sequence": sequences, "label": [0, 1]}).to_csv(
-            split_dir / filename,
-            index=False,
-        )
+        pd.DataFrame(
+            {"sequence": sequences, "label": [0, 1]}
+        ).to_csv(split_dir / filename, index=False)
 
     output_dir = tmp_path / "manifest_run"
     exit_code = main(
@@ -1449,9 +1448,6 @@ def test_predefined_split_loader_rejects_cross_split_duplicate_sequences(tmp_pat
 
     with pytest.raises(ValueError, match="duplicate normalized sequences"):
         load_predefined_split_frames(config, base_dir=tmp_path)
-
-
-
 
 
 def test_predefined_split_loader_normalizes_uracil_and_rejects_conflicting_labels(tmp_path):

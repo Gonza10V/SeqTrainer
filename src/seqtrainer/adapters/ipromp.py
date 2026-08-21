@@ -132,10 +132,24 @@ def write_ipromp_run_commands(
     dnabert_dir = str(params.get("dnabert6_path", "./external/iPro-MP/DNABERT-6"))
     model_dir = str(params.get("ipromp_model_dir", "./external/iPro-MP/models"))
     batch_size = int(params.get("inference_batch_size", 32))
-    max_length = int(params.get("max_length", 128))
-    kmer_size = int(params.get("kmer_size", 6))
+    preprocessing = dict(config.preprocessing.params)
+    configured_max_length = preprocessing.get("model_max_length", preprocessing.get("max_length"))
+    model_max_length = params.get("max_length")
+    if configured_max_length is not None and model_max_length is not None and int(configured_max_length) != int(model_max_length):
+        raise ValueError(
+            "iPro-MP max length is configured differently in preprocessing.params and model.params."
+        )
+    max_length = int(configured_max_length if configured_max_length is not None else (model_max_length or 128))
+    configured_kmer_size = preprocessing.get("kmer_size")
+    model_kmer_size = params.get("kmer_size")
+    if configured_kmer_size is not None and model_kmer_size is not None and int(configured_kmer_size) != int(model_kmer_size):
+        raise ValueError(
+            "iPro-MP k-mer size is configured differently in preprocessing.params and model.params."
+        )
+    kmer_size = int(configured_kmer_size if configured_kmer_size is not None else (model_kmer_size or 6))
     seed = int(config.training.seed)
-    device = str(config.environment.device or "auto")
+    requested_device = str(config.environment.device or "auto")
+    device = "auto" if requested_device == "external" else requested_device
     script = out_dir / "ipromp_run_commands.sh"
     lines = [
         "#!/usr/bin/env bash",
@@ -228,6 +242,16 @@ def normalize_ipromp_predictions(
     if predictions_csv is not None:
         combined = _read_prediction_table(_resolve_input_path(predictions_csv, base_dir))
         if "split" in combined.columns:
+            supplied_splits = set(combined["split"].astype(str))
+            required_splits = {"validation", "test"}
+            missing_splits = required_splits.difference(supplied_splits)
+            unknown_splits = supplied_splits.difference(SPLIT_ORDER)
+            if missing_splits or unknown_splits:
+                raise ValueError(
+                    "Combined iPro-MP predictions must include validation and test rows and "
+                    f"may only use train/validation/test; missing={sorted(missing_splits)}, "
+                    f"unknown={sorted(unknown_splits)}."
+                )
             return _normalize_seqtrainer_predictions(config, combined, mapping)
         raise ValueError("Combined iPro-MP predictions must include a split column.")
 
@@ -366,7 +390,10 @@ def _normalize_official_predictions(
     if prediction_col in table.columns:
         table["source_prediction"] = table[prediction_col]
         if "probability" not in table.columns:
-            table["prediction"] = table[prediction_col].astype(int)
+            table["prediction"] = _validated_hard_predictions(
+                table[prediction_col],
+                context=f"official iPro-MP {split} predictions",
+            )
     if "probability" not in table.columns and "prediction" not in table.columns:
         raise ValueError(
             "Official iPro-MP predictions must include a probability or hard prediction column."
@@ -421,7 +448,10 @@ def _standard_prediction_columns(frame: pd.DataFrame) -> pd.DataFrame:
     if "probability" in out.columns:
         out["probability"] = out["probability"].astype(float)
     if "prediction" in out.columns:
-        out["prediction"] = out["prediction"].astype(int)
+        out["prediction"] = _validated_hard_predictions(
+            out["prediction"],
+            context="iPro-MP predictions",
+        )
     if "source_prediction" not in out.columns and "prediction" in out.columns:
         out["source_prediction"] = out["prediction"]
     columns = ["split", "row_index", "sequence_id", "label", "sequence"]
@@ -429,6 +459,21 @@ def _standard_prediction_columns(frame: pd.DataFrame) -> pd.DataFrame:
         if optional in out.columns:
             columns.append(optional)
     return out[columns].sort_values(["split", "row_index"]).reset_index(drop=True)
+
+
+def _validated_hard_predictions(values: pd.Series, *, context: str) -> pd.Series:
+    """Validate hard predictions instead of silently truncating arbitrary values."""
+    numeric = pd.to_numeric(values, errors="coerce")
+    if (
+        numeric.isna().any()
+        or not numeric.eq(numeric.round()).all()
+        or not numeric.isin([0, 1]).all()
+    ):
+        raise ValueError(
+            f"{context} hard labels must be binary integer values 0 or 1; "
+            f"received examples: {values.drop_duplicates().tolist()[:5]}"
+        )
+    return numeric.astype(int)
 
 
 def _sequence_id(config: BenchmarkConfig, row: pd.Series, split: str, row_index: int) -> str:

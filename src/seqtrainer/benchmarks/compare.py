@@ -21,10 +21,10 @@ def compare_benchmark_outputs(
         artifact_dir = Path(artifact_dir_raw)
         metrics_path = artifact_dir / "metrics.csv"
         manifest_path = artifact_dir / "manifest.json"
-        if not metrics_path.exists():
+        if not metrics_path.exists() or not manifest_path.exists():
             continue
 
-        manifest = _read_json(manifest_path) if manifest_path.exists() else {}
+        manifest = _read_json(manifest_path)
         status = manifest.get("status")
         if status is None:
             status = manifest.get("extra", {}).get("status")

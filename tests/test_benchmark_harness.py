@@ -77,9 +77,14 @@ def test_predefined_split_loader_and_summary(tmp_path):
         "validation": "eval_EP_DNA_BERT2_genomic_order.csv",
         "test": "test_EP_DNA_BERT2_genomic_order.csv",
     }.items():
+        sequences = {
+            "train": ["ACGT", "TGCA", "AAAA"],
+            "validation": ["CCCC", "GGGG", "TTTT"],
+            "test": ["ACAC", "GTGT", "AGAG"],
+        }[split]
         pd.DataFrame(
             {
-                "sequence": ["ACGT", "TGCA", "AAAA"],
+                "sequence": sequences,
                 "label": [0, 1, 1],
                 "split_name": split,
             }
@@ -155,12 +160,13 @@ def test_benchmark_artifact_writers_create_json_and_csv(tmp_path):
 def test_benchmark_manifest_cli_writes_shared_manifest(tmp_path, capsys):
     split_dir = tmp_path / "data" / "promoter_classification"
     split_dir.mkdir(parents=True)
-    for filename in (
-        "train_EP_DNA_BERT2_genomic_order.csv",
-        "eval_EP_DNA_BERT2_genomic_order.csv",
-        "test_EP_DNA_BERT2_genomic_order.csv",
-    ):
-        pd.DataFrame({"sequence": ["ACGT", "TGCA"], "label": [0, 1]}).to_csv(
+    split_sequences = {
+        "train_EP_DNA_BERT2_genomic_order.csv": ["ACGT", "TGCA"],
+        "eval_EP_DNA_BERT2_genomic_order.csv": ["CCCC", "GGGG"],
+        "test_EP_DNA_BERT2_genomic_order.csv": ["ACAC", "GTGT"],
+    }
+    for filename, sequences in split_sequences.items():
+        pd.DataFrame({"sequence": sequences, "label": [0, 1]}).to_csv(
             split_dir / filename,
             index=False,
         )
@@ -218,13 +224,17 @@ def test_artifact_save_flags_are_honored(tmp_path):
 def test_benchmark_run_cli_runs_cnn_and_writes_common_outputs(tmp_path, capsys):
     split_dir = tmp_path / "data" / "promoter_classification"
     split_dir.mkdir(parents=True)
-    sequences = ["ACGTACGT", "TGCATGCA", "AAAACCCC", "GGGGTTTT"]
+    sequences_by_split = {
+        "train": ["ACGTACGT", "TGCATGCA", "AAAACCCC", "GGGGTTTT"],
+        "validation": ["CCCCCCCC", "GGGGGGGG", "TATATATA", "CGCGCGCG"],
+        "test": ["ACACACAC", "GTGTGTGT", "AGAGAGAG", "CTCTCTCT"],
+    }
     for split, filename in {
         "train": "train.csv",
         "validation": "validation.csv",
         "test": "test.csv",
     }.items():
-        pd.DataFrame({"sequence": sequences, "label": [0, 1, 0, 1]}).to_csv(
+        pd.DataFrame({"sequence": sequences_by_split[split], "label": [0, 1, 0, 1]}).to_csv(
             split_dir / filename,
             index=False,
         )
@@ -1196,12 +1206,17 @@ def test_ai_x_bio_stratified_split_creation_and_schema(tmp_path):
 
 
 def _write_configured_split_files(config, base_dir):
+    sequences_by_split = {
+        "train": ["ACGTACGT", "TGCATGCA", "AAAACCCC", "GGGGTTTT"],
+        "validation": ["CCCCCCCC", "GGGGGGGG", "TATATATA", "CGCGCGCG"],
+        "test": ["ACACACAC", "GTGTGTGT", "AGAGAGAG", "CTCTCTCT"],
+    }
     for split, relative_path in config.dataset.split_files.items():
         path = base_dir / relative_path
         path.parent.mkdir(parents=True, exist_ok=True)
         pd.DataFrame(
             {
-                config.dataset.sequence_field: ["ACGTACGT", "TGCATGCA", "AAAACCCC", "GGGGTTTT"],
+                config.dataset.sequence_field: sequences_by_split[split],
                 config.dataset.label_field: [0, 1, 0, 1],
                 "split": split,
             }

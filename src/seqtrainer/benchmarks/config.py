@@ -344,6 +344,14 @@ def _validate_config(config: BenchmarkConfig, source: str) -> None:
             f"{source}: CNN benchmarks require preprocessing.pad_or_trim=true"
         )
 
+    if config.model.family == "cnn":
+        loss = str(config.training.params.get("loss", "cross_entropy")).lower()
+        if loss != "cross_entropy":
+            raise ConfigValidationError(
+                f"{source}: CNN benchmarks only implement training.params.loss='cross_entropy'; "
+                f"got {loss!r}"
+            )
+
     missing_metrics = REQUIRED_CLASSIFICATION_METRICS.difference(config.evaluation.metrics)
     if missing_metrics:
         raise ConfigValidationError(

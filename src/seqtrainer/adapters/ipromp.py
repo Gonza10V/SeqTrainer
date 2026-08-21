@@ -321,6 +321,9 @@ def _normalize_seqtrainer_predictions(
     target_mapping["split"] = target_mapping["split"].astype(str)
     if expected_split is not None:
         target_mapping = target_mapping[target_mapping["split"] == expected_split]
+    else:
+        supplied_splits = set(table["split"])
+        target_mapping = target_mapping[target_mapping["split"].isin(supplied_splits)]
 
     if "sequence_id" in table.columns:
         table["sequence_id"] = table["sequence_id"].map(_decode_fasta_value)

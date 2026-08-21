@@ -249,3 +249,24 @@ def test_cnn_rejects_disabled_pad_or_trim():
 
     with pytest.raises(ConfigValidationError, match="pad_or_trim=true"):
         parse_benchmark_config(raw, source="cnn.toml")
+
+def test_cnn_rejects_unsupported_loss():
+    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
+    raw = {
+        "experiment": config.experiment.__dict__,
+        "dataset": {**config.dataset.__dict__, "split_files": dict(config.dataset.split_files)},
+        "label": config.label.__dict__,
+        "split": config.split.__dict__,
+        "preprocessing": config.preprocessing.__dict__,
+        "model": config.model.__dict__,
+        "training": {
+            **config.training.__dict__,
+            "params": {**config.training.params, "loss": "bce_with_logits"},
+        },
+        "evaluation": {**config.evaluation.__dict__, "metrics": list(config.evaluation.metrics)},
+        "outputs": config.outputs.__dict__,
+        "environment": config.environment.__dict__,
+    }
+
+    with pytest.raises(ConfigValidationError, match="only implement"):
+        parse_benchmark_config(raw, source="cnn-loss.toml")

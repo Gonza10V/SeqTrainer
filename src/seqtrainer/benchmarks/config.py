@@ -351,6 +351,27 @@ def _validate_config(config: BenchmarkConfig, source: str) -> None:
                 f"{source}: CNN benchmarks only implement training.params.loss='cross_entropy'; "
                 f"got {loss!r}"
             )
+        precision = str(config.environment.precision).lower()
+        if precision not in {"float32", "fp32"}:
+            raise ConfigValidationError(
+                f"{source}: CNN benchmarks only implement environment.precision='float32'; "
+                f"got {config.environment.precision!r}"
+            )
+
+    if config.model.family == "dnabert2":
+        pooling = str(config.model.params.get("pooling", "mean")).lower()
+        if pooling not in {"mean", "cls"}:
+            raise ConfigValidationError(
+                f"{source}: DNABERT2 only implements model.params.pooling='mean' or 'cls'; "
+                f"got {pooling!r}"
+            )
+        mode = str(config.model.params.get("mode", "frozen_embedding_classifier")).lower()
+        precision = str(config.environment.precision).lower()
+        if mode == "frozen_embedding_classifier" and precision in {"fp16", "float16"}:
+            raise ConfigValidationError(
+                f"{source}: frozen DNABERT2 classifier does not implement fp16 gradient scaling; "
+                "use environment.precision='float32' or 'bf16'."
+            )
 
     missing_metrics = REQUIRED_CLASSIFICATION_METRICS.difference(config.evaluation.metrics)
     if missing_metrics:

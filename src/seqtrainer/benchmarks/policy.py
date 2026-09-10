@@ -1,5 +1,3 @@
-"""Shared benchmark policies for class balance and threshold selection."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -8,7 +6,6 @@ from typing import Any
 
 @dataclass(frozen=True)
 class ImbalancePolicy:
-    """Decision about whether training-time imbalance handling is warranted."""
 
     apply_to_training: bool
     strategy: str
@@ -24,12 +21,8 @@ def decide_imbalance_policy(
     ratio_threshold: float = 1.5,
     strategy: str = "class_weighting",
 ) -> ImbalancePolicy:
-    """Decide whether to use training-only imbalance handling.
+    """Use training labels only when deciding imbalance handling."""
 
-    The policy intentionally uses only the training split. Validation/test
-    distributions are recorded for interpretation, but they should not drive
-    training-time weighting or sampling decisions.
-    """
     if split != "train":
         raise ValueError("Imbalance handling policy may only be decided from the training split")
 
@@ -76,7 +69,6 @@ def decide_imbalance_policy(
 
 
 def threshold_metric_from_strategy(strategy: str) -> str | None:
-    """Map config threshold strategies to validation metric names."""
     mapping = {
         "validation_mcc": "mcc",
         "validation_f1": "f1",

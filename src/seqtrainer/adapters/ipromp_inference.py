@@ -1,5 +1,3 @@
-"""Run the official iPro-MP fold ensemble with SeqTrainer-stable outputs."""
-
 from __future__ import annotations
 
 import argparse
@@ -13,15 +11,12 @@ from typing import Any, Iterable
 
 @dataclass(frozen=True)
 class FastaRecord:
-    """One FASTA record with the SeqTrainer split and stable sequence ID."""
-
     sequence_id: str
     sequence: str
     split: str
 
 
 def read_seqtrainer_fasta(path: str | Path, *, expected_split: str | None = None) -> list[FastaRecord]:
-    """Read FASTA records produced by ``benchmark prepare-ipromp``."""
     records: list[FastaRecord] = []
     header: str | None = None
     sequence_lines: list[str] = []
@@ -64,7 +59,6 @@ def read_seqtrainer_fasta(path: str | Path, *, expected_split: str | None = None
 
 
 def fold_checkpoint_paths(model_dir: str | Path, species_id: int, *, folds: int = 5) -> list[Path]:
-    """Return the official fold paths and fail clearly when weights are missing."""
     root = Path(model_dir)
     paths = [root / f"{species_id}_fold_{fold}.pth" for fold in range(1, folds + 1)]
     missing = [str(path) for path in paths if not path.is_file()]
@@ -77,7 +71,6 @@ def fold_checkpoint_paths(model_dir: str | Path, species_id: int, *, folds: int 
 
 
 def normalize_state_dict(raw_state: Any) -> dict[str, Any]:
-    """Normalize common checkpoint wrappers without changing tensor values."""
     state = raw_state
     if isinstance(state, dict):
         for key in ("state_dict", "model_state_dict", "model"):
@@ -107,7 +100,8 @@ def run_ipromp_ensemble(
     seed: int = 42,
     device: str = "auto",
 ) -> dict[str, Any]:
-    """Average the five official iPro-MP fold probabilities sequentially."""
+    """Average the official five-fold iPro-MP ensemble sequentially."""
+
     try:
         import numpy as np
         import pandas as pd
@@ -115,7 +109,7 @@ def run_ipromp_ensemble(
         from torch import nn
         from torch.utils.data import DataLoader, Dataset
         from transformers import BertModel, BertTokenizer
-    except ImportError as exc:  # pragma: no cover - depends on the external environment
+    except ImportError as exc:
         raise RuntimeError(
             "iPro-MP inference requires torch, transformers, numpy, and pandas. "
             "Install with `python -m pip install -e \".[torch]\"`."

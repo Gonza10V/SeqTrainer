@@ -1,5 +1,3 @@
-"""Dependency-gated DNABERT2 benchmark runner."""
-
 from __future__ import annotations
 
 import random
@@ -37,12 +35,11 @@ def run_dnabert2_csv_splits(
     tokenizer: Any | None = None,
     encoder: Any | None = None,
 ) -> BenchmarkRunResult:
-    """Run DNABERT2 frozen/fine-tuned benchmark on predefined CSV splits."""
     try:
         import torch
         from torch import nn
         from torch.utils.data import DataLoader, TensorDataset
-    except ModuleNotFoundError as exc:  # pragma: no cover - depends on optional extras
+    except ModuleNotFoundError as exc:
         raise BenchmarkSkipped(
             "DNABERT2 benchmark requires optional torch dependencies."
         ) from exc
@@ -574,7 +571,6 @@ def _build_classifier(encoder: Any, hidden_size: int, pooling: str, dropout: flo
 
 
 def _normalize_binary_labels(config: BenchmarkConfig, frame: pd.DataFrame) -> Any:
-    """Map configured negative/positive labels to model targets 0/1."""
     negative_label = config.label.negative_label
     positive_label = config.label.positive_label
     if negative_label == positive_label:
@@ -593,7 +589,6 @@ def _normalize_binary_labels(config: BenchmarkConfig, frame: pd.DataFrame) -> An
 
 
 def _primary_metric_score(metrics: dict[str, Any], metric: str) -> float:
-    """Return the declared primary validation metric for checkpoint selection."""
     value = metrics.get(metric)
     if isinstance(value, dict) or value is None:
         raise ValueError(
@@ -607,7 +602,6 @@ def _select_dnabert2_threshold(
     labels: np.ndarray,
     probabilities: np.ndarray,
 ) -> tuple[float, float, str]:
-    """Select a validation threshold according to the configured policy."""
     strategy = config.evaluation.threshold_strategy
     metric = threshold_metric_from_strategy(strategy)
     if metric is None:
@@ -655,7 +649,7 @@ def _load_huggingface_dnabert2(
 ) -> tuple[Any, Any]:
     try:
         from transformers import AutoConfig, AutoModel, AutoTokenizer
-    except ModuleNotFoundError as exc:  # pragma: no cover - depends on optional extras
+    except ModuleNotFoundError as exc:
         raise BenchmarkSkipped(
             "DNABERT2 benchmark requires transformers. Install with `python -m pip install -e \".[torch]\"`."
         ) from exc
@@ -782,7 +776,6 @@ def _disable_dnabert2_flash_attention(model: Any) -> None:
 
 
 def _enable_gradient_checkpointing(model: Any) -> None:
-    """Enable activation checkpointing for resource-constrained fine-tuning."""
     enable = getattr(model, "gradient_checkpointing_enable", None)
     if not callable(enable):
         raise BenchmarkSkipped(
@@ -886,7 +879,6 @@ def _load_dnabert2_official_encoder(
     trust_remote_code: bool,
     local_files_only: bool,
 ) -> Any:
-    """Load DNABERT2 with the simple path documented on its model card."""
     from transformers import AutoModel
 
     try:
@@ -911,7 +903,6 @@ def _load_dnabert2_encoder_from_sequence_classifier(
     trust_remote_code: bool,
     local_files_only: bool,
 ) -> Any:
-    """Load DNABERT2 through the sequence-classification path used upstream."""
     from transformers import AutoModelForSequenceClassification
 
     model = AutoModelForSequenceClassification.from_pretrained(

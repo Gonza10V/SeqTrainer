@@ -1,5 +1,3 @@
-"""Shared split loading and summary helpers for benchmark runs."""
-
 from __future__ import annotations
 
 import hashlib
@@ -15,7 +13,6 @@ REQUIRED_SPLITS = ("train", "validation", "test")
 
 
 def resolve_split_paths(config: BenchmarkConfig, base_dir: str | Path | None = None) -> dict[str, Path]:
-    """Resolve configured split paths for predefined split benchmarks."""
     if config.split.strategy != "predefined":
         raise ValueError("resolve_split_paths only supports split.strategy='predefined'")
 
@@ -32,7 +29,6 @@ def load_predefined_split_frames(
     config: BenchmarkConfig,
     base_dir: str | Path | None = None,
 ) -> dict[str, pd.DataFrame]:
-    """Load train/validation/test CSV split files with basic schema checks."""
     paths = resolve_split_paths(config, base_dir=base_dir)
     frames: dict[str, pd.DataFrame] = {}
     required_columns = {config.dataset.sequence_field, config.dataset.label_field}
@@ -67,7 +63,8 @@ def _reject_cross_split_duplicates(
     config: BenchmarkConfig,
     frames: dict[str, pd.DataFrame],
 ) -> None:
-    """Reject normalized sequences shared by different predefined splits."""
+    """Keep held-out splits independent after DNA normalization."""
+
     sequence_field = config.dataset.sequence_field
     seen: dict[str, tuple[str, Any]] = {}
     duplicates: list[tuple[str, str, str]] = []
@@ -116,7 +113,8 @@ def _reject_cross_split_duplicates(
 
 
 def _split_content_sha256(config: BenchmarkConfig, frame: pd.DataFrame) -> str:
-    """Hash the ordered benchmark rows used for split comparison."""
+    """Bind comparisons to the ordered content of each split."""
+
     columns = [config.dataset.sequence_field, config.dataset.label_field]
     if config.dataset.id_field and config.dataset.id_field in frame:
         columns.append(config.dataset.id_field)
@@ -133,7 +131,6 @@ def _split_content_sha256(config: BenchmarkConfig, frame: pd.DataFrame) -> str:
 
 
 def summarize_split_frames(config: BenchmarkConfig, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
-    """Summarize split sizes, class balance, and source files for manifests."""
     summary: dict[str, Any] = {}
     for split in REQUIRED_SPLITS:
         frame = frames[split]

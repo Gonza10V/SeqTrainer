@@ -1,15 +1,13 @@
-"""Configuration contract for reproducible promoter benchmarks."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
-try:  # Python 3.11+
+try:
     import tomllib
-except ModuleNotFoundError:  # pragma: no cover - exercised on Python <3.11
-    import tomli as tomllib  # type: ignore[no-redef]
+except ModuleNotFoundError:
+    import tomli as tomllib
 
 
 REQUIRED_CLASSIFICATION_METRICS = {
@@ -42,7 +40,7 @@ _ALLOWED_THRESHOLD_STRATEGIES = {
 
 
 class ConfigValidationError(ValueError):
-    """Raised when a benchmark configuration does not satisfy the contract."""
+    pass
 
 
 @dataclass(frozen=True)
@@ -143,7 +141,6 @@ class BenchmarkConfig:
 
 
 def load_benchmark_config(path: str | Path) -> BenchmarkConfig:
-    """Load and validate a benchmark TOML configuration."""
     config_path = Path(path)
     with config_path.open("rb") as handle:
         raw = tomllib.load(handle)
@@ -151,7 +148,6 @@ def load_benchmark_config(path: str | Path) -> BenchmarkConfig:
 
 
 def parse_benchmark_config(raw: Mapping[str, Any], source: str = "<memory>") -> BenchmarkConfig:
-    """Parse a raw mapping into the typed benchmark configuration."""
     _require_sections(
         raw,
         (

@@ -2,8 +2,6 @@ from pathlib import Path
 
 import pytest
 
-# The torch extra is optional for SeqTrainer, so this module intentionally
-# skips before importing torch-dependent benchmark objects.
 # ruff: noqa: E402
 torch = pytest.importorskip("torch")
 

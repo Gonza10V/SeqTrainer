@@ -1,5 +1,3 @@
-"""iPro-MP external benchmark preparation and prediction normalization."""
-
 from __future__ import annotations
 
 import shlex
@@ -19,8 +17,6 @@ SPLIT_ORDER = ("train", "validation", "test")
 
 @dataclass(frozen=True)
 class IprompPreparationResult:
-    """Paths written for external iPro-MP inference."""
-
     output_dir: Path
     fasta_paths: dict[str, Path]
     mapping_csv: Path
@@ -34,7 +30,6 @@ def prepare_ipromp_inputs(
     base_dir: str | Path | None = None,
     output_dir: str | Path | None = None,
 ) -> IprompPreparationResult:
-    """Write FASTA, mapping, command, and schema files for external iPro-MP."""
     config = load_benchmark_config(config_or_path) if not isinstance(config_or_path, BenchmarkConfig) else config_or_path
     frames = load_predefined_split_frames(config, base_dir=base_dir)
     out_dir = Path(output_dir or config.outputs.output_dir)
@@ -68,7 +63,8 @@ def prepare_ipromp_inputs(
 
 
 def build_ipromp_mapping(config: BenchmarkConfig, frames: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """Create stable row IDs for every configured benchmark split."""
+    """Create stable IDs for attaching external predictions to split rows."""
+
     rows: list[dict[str, Any]] = []
     for split in SPLIT_ORDER:
         frame = frames[split].reset_index(drop=True)
@@ -97,7 +93,6 @@ def write_ipromp_fastas(
     *,
     mapping: pd.DataFrame | None = None,
 ) -> dict[str, Path]:
-    """Write SeqTrainer split CSV rows as iPro-MP-compatible FASTA files."""
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     mapping = mapping if mapping is not None else build_ipromp_mapping(config, frames)
@@ -123,7 +118,6 @@ def write_ipromp_run_commands(
     fasta_paths: dict[str, Path],
     output_dir: str | Path,
 ) -> Path:
-    """Write a shell script with official iPro-MP prediction commands."""
     params = dict(config.model.params)
     out_dir = Path(output_dir)
     external_predictions_dir = out_dir / "external_predictions"
@@ -193,7 +187,6 @@ def write_ipromp_run_commands(
 
 
 def write_external_prediction_schema(output_dir: str | Path) -> Path:
-    """Document accepted external iPro-MP prediction formats."""
     path = Path(output_dir) / "external_prediction_schema.md"
     path.write_text(
         """# External iPro-MP Prediction Schema
@@ -238,7 +231,6 @@ def normalize_ipromp_predictions(
     base_dir: str | Path | None = None,
     frames: dict[str, pd.DataFrame] | None = None,
 ) -> pd.DataFrame:
-    """Normalize official iPro-MP or SeqTrainer prediction files."""
     mapping_path = _resolve_input_path(mapping_csv, base_dir)
     if not mapping_path.exists():
         raise FileNotFoundError(f"Missing iPro-MP mapping CSV: {mapping_path}")
@@ -284,7 +276,8 @@ def normalize_ipromp_predictions(
 
 
 def normalize_dna_sequence(sequence: str) -> str:
-    """Normalize a DNA sequence and fail on invalid bases."""
+    """Canonicalize DNA input, including U-to-T conversion."""
+
     cleaned = sequence.strip().upper().replace("U", "T")
     if not cleaned:
         raise ValueError("Cannot write an empty sequence to FASTA")
@@ -473,7 +466,6 @@ def _standard_prediction_columns(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def _validated_hard_predictions(values: pd.Series, *, context: str) -> pd.Series:
-    """Validate hard predictions instead of silently truncating arbitrary values."""
     numeric = pd.to_numeric(values, errors="coerce")
     if (
         numeric.isna().any()
@@ -515,7 +507,6 @@ def _validate_mapping_matches_frames(
     mapping: pd.DataFrame,
     frames: dict[str, pd.DataFrame],
 ) -> None:
-    """Reject mappings generated from a different configured split set."""
     expected = build_ipromp_mapping(config, frames)
     columns = ["split", "row_index", "sequence_id", "label", "sequence"]
     actual_rows = mapping[columns].copy()
@@ -562,7 +553,6 @@ def _resolve_input_path(path: str | Path, base_dir: str | Path | None) -> Path:
 
 
 def _encode_fasta_value(value: Any) -> str:
-    """Encode metadata values so FASTA pipe-delimited headers remain parseable."""
     return "url:" + quote(str(value), safe="")
 
 

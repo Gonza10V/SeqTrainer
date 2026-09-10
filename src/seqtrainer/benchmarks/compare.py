@@ -1,5 +1,3 @@
-"""Compare completed benchmark artifact folders."""
-
 from __future__ import annotations
 
 import json
@@ -14,7 +12,8 @@ def compare_benchmark_outputs(
     *,
     output_dir: str | Path,
 ) -> dict[str, Path]:
-    """Rank benchmark artifact folders by held-out test MCC and AUPRC."""
+    """Compare completed artifacts only when their dataset contracts match."""
+
     rows: list[dict[str, Any]] = []
     expected_contract: str | None = None
     for artifact_dir_raw in artifact_dirs:
@@ -126,7 +125,6 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 
 def _comparison_contract(manifest: dict[str, Any]) -> str | None:
-    """Return existing manifest metadata used to validate fair comparisons."""
     dataset = manifest.get("dataset")
     if not isinstance(dataset, dict):
         return None

@@ -1,5 +1,3 @@
-"""Reproducible PyTorch CNN baseline from the tutorial notebook."""
-
 from __future__ import annotations
 
 import hashlib
@@ -17,7 +15,7 @@ try:
     import torch
     from torch import nn
     from torch.utils.data import DataLoader, TensorDataset
-except ModuleNotFoundError as exc:  # pragma: no cover - depends on optional extra
+except ModuleNotFoundError as exc:
     raise ModuleNotFoundError(
         "The CNN baseline requires PyTorch. Install with `pip install -e '.[torch]'` "
         "or install torch in your notebook/Colab environment."
@@ -31,8 +29,6 @@ from seqtrainer.transforms.dna import one_hot_encode, pad_or_trim
 
 @dataclass(frozen=True)
 class CnnBaselineConfig:
-    """Configuration for reproducing the original tutorial CNN baseline."""
-
     data_dir: str | Path = "data/sbol_data"
     output_dir: str | Path = "outputs/cnn_baseline_reference"
     max_files: int = 40
@@ -50,8 +46,6 @@ class CnnBaselineConfig:
 
 @dataclass(frozen=True)
 class CnnCsvSplitConfig:
-    """Configuration for training the CNN on predefined CSV split files."""
-
     train_csv: str | Path
     validation_csv: str | Path
     test_csv: str | Path
@@ -94,8 +88,6 @@ class CnnCsvSplitConfig:
 
 @dataclass(frozen=True)
 class CnnBaselineResult:
-    """Artifacts returned after a CNN baseline run."""
-
     output_dir: Path
     metrics: dict[str, dict[str, Any]]
     manifest: dict[str, Any]
@@ -103,8 +95,6 @@ class CnnBaselineResult:
 
 
 class TinyDNACNN(nn.Module):
-    """Small Conv1D classifier matching the tutorial notebook architecture."""
-
     def __init__(
         self,
         channels: int = 5,
@@ -145,8 +135,6 @@ class TinyDNACNN(nn.Module):
 
 
 class EnhancedDNACNN(nn.Module):
-    """Stronger Conv1D classifier for controlled CNN baseline improvements."""
-
     def __init__(
         self,
         channels: int = 5,
@@ -206,7 +194,6 @@ class EnhancedDNACNN(nn.Module):
 
 
 def run_cnn_baseline(config: CnnBaselineConfig | None = None) -> CnnBaselineResult:
-    """Train the tutorial CNN baseline and write reference artifacts."""
     cfg = config or CnnBaselineConfig()
     _seed_everything(cfg.seed, cfg.deterministic)
 
@@ -260,7 +247,6 @@ def run_cnn_baseline(config: CnnBaselineConfig | None = None) -> CnnBaselineResu
 
 
 def run_cnn_csv_splits(config: CnnCsvSplitConfig) -> CnnBaselineResult:
-    """Train the CNN on predefined train/validation/test CSV files."""
     _seed_everything(config.seed, config.deterministic)
 
     frames = _load_csv_split_frames(config)
@@ -790,7 +776,6 @@ def _csv_model_metadata(config: CnnCsvSplitConfig) -> dict[str, Any]:
 
 
 def _csv_content_sha256(path: Path, cfg: CnnCsvSplitConfig) -> str:
-    """Hash the ordered raw CSV rows used by the shared comparison contract."""
     frame = pd.read_csv(path)
     columns = [cfg.sequence_field, cfg.label_field]
     if cfg.id_field and cfg.id_field in frame.columns:

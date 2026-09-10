@@ -1,10 +1,3 @@
-"""Shared benchmark runner entrypoints.
-
-This module keeps CLI and notebook benchmark execution on the same path. CNN is
-implemented as an in-package trainer. DNABERT2 and iPro-MP are dependency-gated
-so the harness can be tested without downloading large external models.
-"""
-
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
@@ -28,7 +21,6 @@ from .splits import load_predefined_split_frames, resolve_split_paths, summarize
 
 @dataclass(frozen=True)
 class BenchmarkRunResult:
-    """Result metadata returned by a benchmark run."""
 
     output_dir: Path
     status: str
@@ -37,7 +29,7 @@ class BenchmarkRunResult:
 
 
 class BenchmarkSkipped(RuntimeError):
-    """Raised when an optional benchmark cannot run in the current environment."""
+    pass
 
 
 def run_benchmark(
@@ -47,7 +39,6 @@ def run_benchmark(
     output_dir: str | Path | None = None,
     allow_skip: bool = True,
 ) -> BenchmarkRunResult:
-    """Run a configured benchmark and write the common artifact set."""
     config = load_benchmark_config(config_or_path) if not isinstance(config_or_path, BenchmarkConfig) else config_or_path
     family = config.model.family
     if family == "cnn":
@@ -67,7 +58,6 @@ def _run_cnn(
 ) -> BenchmarkRunResult:
     from seqtrainer.torch.cnn_baseline import CnnCsvSplitConfig, run_cnn_csv_splits
 
-    # Validate the same shared split contract used by the other model families.
     load_predefined_split_frames(config, base_dir=base_dir)
     paths = resolve_split_paths(config, base_dir=base_dir)
     params = dict(config.training.params)
@@ -325,7 +315,7 @@ def _write_skipped_result(
     try:
         frames = load_predefined_split_frames(config, base_dir=base_dir)
         split_summary = summarize_split_frames(config, frames)
-    except Exception as exc:  # keep dependency skips informative even without data files
+    except Exception as exc:
         split_summary = {"warning": f"Could not load configured splits: {exc}"}
 
     manifest = build_run_manifest(
@@ -346,7 +336,6 @@ def _write_skipped_result(
 
 
 def _resolve_output_dir(path: str | Path, base_dir: str | Path | None) -> Path:
-    """Resolve relative generated artifacts against the benchmark base directory."""
     resolved = Path(path)
     if resolved.is_absolute():
         return resolved

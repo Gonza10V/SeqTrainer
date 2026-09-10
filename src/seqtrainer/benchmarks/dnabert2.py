@@ -1,5 +1,3 @@
-"""DNABERT2 tokenization helpers for shared benchmark splits."""
-
 from __future__ import annotations
 
 import json
@@ -16,8 +14,6 @@ from .splits import load_predefined_split_frames, summarize_split_frames
 
 @dataclass(frozen=True)
 class DnaBert2TokenizationResult:
-    """Paths and metadata produced by DNABERT2 tokenization."""
-
     output_dir: Path
     tokenized_paths: dict[str, Path]
     metadata_path: Path
@@ -31,12 +27,6 @@ def prepare_dnabert2_tokenized_splits(
     output_dir: str | Path | None = None,
     tokenizer: Any | None = None,
 ) -> DnaBert2TokenizationResult:
-    """Tokenize shared train/validation/test CSV splits for DNABERT2.
-
-    This prepares inspectable CSV artifacts instead of training a model. It is
-    useful for Colab setup checks and for verifying that DNABERT2 sees the same
-    split rows as CNN/iPro-MP.
-    """
     config = load_benchmark_config(config) if not isinstance(config, BenchmarkConfig) else config
     params = dict(config.model.params)
     preprocessing = dict(config.preprocessing.params)

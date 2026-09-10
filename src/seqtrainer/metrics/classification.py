@@ -1,5 +1,3 @@
-"""Classification metrics used by benchmark workflows."""
-
 from __future__ import annotations
 
 from typing import Any
@@ -17,7 +15,6 @@ from sklearn.metrics import (
 
 
 def _default_mcc_thresholds(scores: np.ndarray) -> np.ndarray:
-    """Build MCC threshold candidates from fixed grid values and observed scores."""
     finite_scores = np.sort(np.unique(scores[np.isfinite(scores)]))
     if finite_scores.size == 0:
         raise ValueError("Cannot select a threshold when all scores are non-finite")
@@ -33,7 +30,6 @@ def _default_mcc_thresholds(scores: np.ndarray) -> np.ndarray:
 
 
 def threshold_predictions(y_score: np.ndarray, threshold: float) -> np.ndarray:
-    """Convert class-one scores into binary predictions."""
     scores = np.asarray(y_score, dtype=float)
     return (scores >= threshold).astype(int)
 
@@ -43,7 +39,6 @@ def binary_classification_metrics(
     y_score: np.ndarray,
     threshold: float = 0.5,
 ) -> dict[str, Any]:
-    """Compute the shared binary-classification metric suite."""
     labels = np.asarray(y_true, dtype=int)
     scores = np.asarray(y_score, dtype=float)
     if labels.shape[0] == 0:
@@ -94,7 +89,6 @@ def binary_classification_metrics_from_predictions(
     threshold: float | None = None,
     warning: str | None = None,
 ) -> dict[str, Any]:
-    """Compute the shared metric suite when only hard predictions are available."""
     labels = np.asarray(y_true, dtype=int)
     predictions = np.asarray(y_pred, dtype=int)
     if labels.shape[0] == 0:
@@ -137,7 +131,6 @@ def best_threshold_by_metric(
     metric: str = "mcc",
     thresholds: np.ndarray | None = None,
 ) -> tuple[float, float]:
-    """Choose a binary threshold by maximizing a validation metric."""
     labels = np.asarray(y_true, dtype=int)
     scores = np.asarray(y_score, dtype=float)
     if labels.shape[0] == 0:
@@ -175,7 +168,6 @@ def best_threshold_by_mcc(
     y_score: np.ndarray,
     thresholds: np.ndarray | None = None,
 ) -> tuple[float, float]:
-    """Choose a binary threshold by maximizing MCC on validation data."""
     return best_threshold_by_metric(y_true, y_score, metric="mcc", thresholds=thresholds)
 
 

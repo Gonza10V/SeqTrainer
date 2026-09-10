@@ -1,5 +1,3 @@
-"""Artifact writers shared by benchmark runners."""
-
 from __future__ import annotations
 
 import json
@@ -12,7 +10,6 @@ from .manifest import to_plain_data
 
 
 def write_json(path: str | Path, payload: Any) -> Path:
-    """Write a JSON artifact with stable formatting."""
     out_path = Path(path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(to_plain_data(payload), indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -20,7 +17,6 @@ def write_json(path: str | Path, payload: Any) -> Path:
 
 
 def write_metrics_csv(metrics_by_split: dict[str, dict[str, Any]], path: str | Path) -> Path:
-    """Write split-wise metrics to a flat CSV table."""
     rows = []
     for split, metrics in metrics_by_split.items():
         row = {"split": split}
@@ -38,7 +34,6 @@ def write_metrics_csv(metrics_by_split: dict[str, dict[str, Any]], path: str | P
 
 
 def write_table_csv(frame: pd.DataFrame, path: str | Path) -> Path:
-    """Write a tabular benchmark artifact."""
     out_path = Path(path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     frame.to_csv(out_path, index=False)
@@ -54,7 +49,6 @@ def write_benchmark_outputs(
     history: pd.DataFrame | None = None,
     config: Any | None = None,
 ) -> dict[str, Path]:
-    """Write the common benchmark artifact set and return written paths."""
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -63,7 +57,6 @@ def write_benchmark_outputs(
     save_csv = bool(getattr(outputs, "save_csv", True))
     save_predictions = bool(getattr(outputs, "save_predictions", True))
 
-    # Prevent stale artifacts from a previous run being mistaken for current output.
     if not save_json:
         for path in (out_dir / "config.json", out_dir / "metrics.json"):
             path.unlink(missing_ok=True)

@@ -5,7 +5,12 @@ import pandas as pd
 import pytest
 
 from seqtrainer.benchmarks.config import load_benchmark_config
-from seqtrainer.torch.dnabert2_benchmark import _normalize_binary_labels, _select_dnabert2_threshold
+from seqtrainer.torch.dnabert2_benchmark import (
+    _autocast_context,
+    _normalize_binary_labels,
+    _pool_hidden_states,
+    _select_dnabert2_threshold,
+)
 
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config-examples" / "benchmarks" / "dnabert2_finetune.toml"
 
@@ -124,3 +129,17 @@ def test_dnabert2_scales_final_partial_accumulation_window():
     )
 
     assert model.weight.item() == pytest.approx(0.36, abs=1e-6)
+
+
+def test_dnabert2_rejects_unsupported_pooling_at_execution_boundary():
+    torch = pytest.importorskip("torch")
+
+    with pytest.raises(ValueError, match="pooling"):
+        _pool_hidden_states(torch.ones(1, 2, 3), torch.ones(1, 2), "max")
+
+
+def test_dnabert2_rejects_reduced_precision_on_cpu():
+    torch = pytest.importorskip("torch")
+
+    with pytest.raises(ValueError, match="requires CUDA"):
+        _autocast_context(torch, torch.device("cpu"), "bf16")

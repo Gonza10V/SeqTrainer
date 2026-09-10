@@ -35,13 +35,11 @@ python -m zipfile -e data/data_DNABERT/promoter_classification_DNABERT.zip data/
 seqtrainer benchmark run notebooks/benchmarks/cnn_v2/config.toml
 ```
 
-For a short local smoke run, use the explicit override path:
+For a short local smoke run, copy the TOML, set `training.max_epochs = 1`
+and change `[outputs].output_dir`, then run it through the same command:
 
 ```bash
-seqtrainer run-cnn-benchmark \
-  --config notebooks/benchmarks/cnn_v2/config.toml \
-  --cycles 1 \
-  --output-dir outputs/cnn_csv_smoke
+seqtrainer benchmark run path/to/cnn_v2_smoke.toml
 ```
 
 ## Dataset And Policy

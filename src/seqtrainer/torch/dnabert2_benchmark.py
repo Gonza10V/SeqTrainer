@@ -957,8 +957,11 @@ def _last_hidden_state(outputs: Any) -> Any:
 
 
 def _pool_hidden_states(hidden: Any, attention_mask: Any, pooling: str) -> Any:
+    pooling = str(pooling).lower()
     if pooling == "cls":
         return hidden[:, 0, :]
+    if pooling != "mean":
+        raise ValueError(f"DNABERT2 only supports pooling='mean' or 'cls'; got {pooling!r}")
     mask = attention_mask.unsqueeze(-1).to(hidden.dtype)
     return (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp_min(1.0)
 
@@ -1084,9 +1087,13 @@ def _predict(
 
 
 def _autocast_context(torch: Any, device: Any, precision: str) -> Any:
-    if getattr(device, "type", None) != "cuda":
-        return nullcontext()
     normalized = str(precision).lower()
+    if getattr(device, "type", None) != "cuda":
+        if normalized in {"bf16", "bfloat16", "fp16", "float16"}:
+            raise ValueError(
+                f"DNABERT2 precision={precision!r} requires CUDA; use environment.precision='float32' on CPU."
+            )
+        return nullcontext()
     if normalized in {"bf16", "bfloat16"}:
         return torch.autocast(device_type="cuda", dtype=torch.bfloat16)
     if normalized in {"fp16", "float16"}:

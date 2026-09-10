@@ -28,7 +28,6 @@ _ALLOWED_DATASET_FORMATS = {"csv", "materialized_csv"}
 _ALLOWED_LABEL_SOURCES = {
     "provided_binary",
     "curated_binary",
-    "numeric_target_threshold",
 }
 _ALLOWED_THRESHOLD_STRATEGIES = {
     "validation_mcc",
@@ -278,12 +277,6 @@ def _validate_config(config: BenchmarkConfig, source: str) -> None:
         raise ConfigValidationError(
             f"{source}: split.strategy={config.split.strategy!r} is not implemented by the benchmark runners; "
             "use split.strategy='predefined' with train/validation/test CSV files."
-        )
-
-    if config.label.source == "numeric_target_threshold":
-        raise ConfigValidationError(
-            f"{source}: label.source='numeric_target_threshold' is not implemented; "
-            "use label.source='provided_binary' or 'curated_binary'."
         )
 
     if config.model.family == "cnn" and not config.preprocessing.pad_or_trim:

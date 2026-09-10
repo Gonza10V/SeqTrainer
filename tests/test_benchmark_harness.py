@@ -604,6 +604,7 @@ def test_dnabert2_frozen_embedding_baseline_uses_encoder_and_caches_embeddings(t
         config,
         training=replace(config.training, max_epochs=2, batch_size=2, learning_rate=0.01),
         model=replace(config.model, params={**dict(config.model.params), "classifier_dropout": 0.0}),
+        environment=replace(config.environment, precision="float32"),
     )
 
     result = run_dnabert2_csv_splits(
@@ -623,30 +624,6 @@ def test_dnabert2_frozen_embedding_baseline_uses_encoder_and_caches_embeddings(t
     assert result.manifest["model"]["metadata"]["embedding_cache_dir"]
 
 
-def test_dnabert2_frozen_embedding_records_configured_precision(tmp_path):
-    torch = pytest.importorskip("torch")
-    from seqtrainer.torch.dnabert2_benchmark import run_dnabert2_csv_splits
-
-    config = load_benchmark_config(CONFIG_DIR / "dnabert2_frozen.toml")
-    _write_configured_split_files(config, tmp_path)
-    config = replace(
-        config,
-        environment=replace(config.environment, precision="bf16"),
-        training=replace(config.training, max_epochs=1, batch_size=2, learning_rate=0.01),
-        model=replace(config.model, params={**dict(config.model.params), "classifier_dropout": 0.0}),
-    )
-
-    result = run_dnabert2_csv_splits(
-        config,
-        base_dir=tmp_path,
-        output_dir=tmp_path / "dnabert2_bf16",
-        tokenizer=_TorchStubTokenizer(torch),
-        encoder=_TinyEncoder(torch),
-    )
-
-    assert result.manifest["model"]["metadata"]["precision"] == "bf16"
-
-
 def test_dnabert2_frozen_embedding_baseline_honors_zero_epochs(tmp_path):
     torch = pytest.importorskip("torch")
     from seqtrainer.torch.dnabert2_benchmark import run_dnabert2_csv_splits
@@ -657,6 +634,7 @@ def test_dnabert2_frozen_embedding_baseline_honors_zero_epochs(tmp_path):
         config,
         training=replace(config.training, max_epochs=0, batch_size=2, learning_rate=0.01),
         model=replace(config.model, params={**dict(config.model.params), "classifier_dropout": 0.0}),
+        environment=replace(config.environment, precision="float32"),
     )
 
     result = run_dnabert2_csv_splits(
@@ -1262,32 +1240,6 @@ def test_split_summary_supports_configured_string_labels(tmp_path):
     assert summary["train"]["class_counts"] == {"background": 1, "promoter": 3}
 
 
-def test_direct_cnn_cli_propagates_configured_cnn_v2_params(tmp_path, monkeypatch):
-    import seqtrainer.torch.cnn_baseline as cnn_baseline
-
-    config = load_benchmark_config(CONFIG_DIR / "cnn_v2.toml")
-    _write_configured_split_files(config, tmp_path)
-    monkeypatch.chdir(tmp_path)
-    captured = {}
-
-    def fake_run(run_config):
-        captured["config"] = run_config
-        return SimpleNamespace(
-            output_dir=tmp_path,
-            metrics={},
-            manifest={"threshold_selection": {"threshold": 0.5}},
-        )
-
-    monkeypatch.setattr(cnn_baseline, "run_cnn_csv_splits", fake_run)
-
-    assert main(["run-cnn-benchmark", "--config", str(CONFIG_DIR / "cnn_v2.toml")]) == 0
-    run_config = captured["config"]
-    assert run_config.model_variant == "enhanced"
-    assert run_config.optimizer_name == "adamw"
-    assert run_config.scheduler_name == "one_cycle"
-    assert run_config.threshold_strategy == "validation_mcc"
-
-
 def test_cnn_runner_preserves_explicit_zero_training_values(tmp_path, monkeypatch):
     import seqtrainer.benchmarks.runner as benchmark_runner
     import seqtrainer.torch.cnn_baseline as cnn_baseline
@@ -1315,42 +1267,6 @@ def test_cnn_runner_preserves_explicit_zero_training_values(tmp_path, monkeypatc
     result = benchmark_runner.run_benchmark(config, base_dir=tmp_path)
 
     assert result.status == "completed"
-    assert captured["config"].cycles == 0
-    assert captured["config"].learning_rate == 0.0
-
-
-def test_direct_cnn_cli_preserves_zero_overrides(tmp_path, monkeypatch):
-    import seqtrainer.torch.cnn_baseline as cnn_baseline
-
-    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
-    _write_configured_split_files(config, tmp_path)
-    monkeypatch.chdir(tmp_path)
-    captured = {}
-
-    def fake_run(run_config):
-        captured["config"] = run_config
-        return SimpleNamespace(
-            output_dir=tmp_path,
-            metrics={},
-            manifest={"threshold_selection": {"threshold": 0.5}},
-        )
-
-    monkeypatch.setattr(cnn_baseline, "run_cnn_csv_splits", fake_run)
-
-    assert main(
-        [
-            "run-cnn-benchmark",
-            "--config",
-            str(CONFIG_DIR / "cnn.toml"),
-            "--seed",
-            "0",
-            "--cycles",
-            "0",
-            "--learning-rate",
-            "0",
-        ]
-    ) == 0
-    assert captured["config"].seed == 0
     assert captured["config"].cycles == 0
     assert captured["config"].learning_rate == 0.0
 
@@ -1632,10 +1548,6 @@ def test_ipromp_fasta_ids_are_encoded_and_command_preserves_kmer_size(tmp_path):
         config,
         dataset=replace(config.dataset, id_field="id"),
         preprocessing=replace(config.preprocessing, params={**config.preprocessing.params, "kmer_size": 7}),
-        model=replace(
-            config.model,
-            params={**config.model.params, "kmer_size": 7},
-        ),
     )
     frames = {
         split: pd.DataFrame(

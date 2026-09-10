@@ -58,9 +58,9 @@ def read_seqtrainer_fasta(path: str | Path, *, expected_split: str | None = None
     return records
 
 
-def fold_checkpoint_paths(model_dir: str | Path, species_id: int, *, folds: int = 5) -> list[Path]:
+def fold_checkpoint_paths(model_dir: str | Path, species_id: int) -> list[Path]:
     root = Path(model_dir)
-    paths = [root / f"{species_id}_fold_{fold}.pth" for fold in range(1, folds + 1)]
+    paths = [root / f"{species_id}_fold_{fold}.pth" for fold in range(1, 6)]
     missing = [str(path) for path in paths if not path.is_file()]
     if missing:
         raise FileNotFoundError(

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from dataclasses import replace
 
 from seqtrainer.data.sbol import build_dataset_from_files, get_sequence_from_sbol
 from seqtrainer.sparql.prefixes import format_prefixes
@@ -31,19 +30,6 @@ def _build_parser() -> argparse.ArgumentParser:
     cnn_baseline.add_argument("--cycles", type=int, default=10)
     cnn_baseline.add_argument("--learning-rate", type=float, default=1e-3)
     cnn_baseline.add_argument("--device", default="cpu")
-
-    cnn_csv = subparsers.add_parser("run-cnn-benchmark", help="Train CNN on predefined CSV split files")
-    cnn_csv.add_argument("--config", type=Path, default=Path("config-examples/benchmarks/cnn.toml"))
-    cnn_csv.add_argument("--train-csv", type=Path)
-    cnn_csv.add_argument("--validation-csv", "--validate-csv", "--eval-csv", dest="validation_csv", type=Path)
-    cnn_csv.add_argument("--test-csv", type=Path)
-    cnn_csv.add_argument("--output-dir", type=Path)
-    cnn_csv.add_argument("--sequence-length", type=int)
-    cnn_csv.add_argument("--seed", type=int)
-    cnn_csv.add_argument("--batch-size", type=int)
-    cnn_csv.add_argument("--cycles", type=int)
-    cnn_csv.add_argument("--learning-rate", type=float)
-    cnn_csv.add_argument("--device")
 
     benchmark = subparsers.add_parser("benchmark", help="Benchmark harness commands")
     benchmark_sub = benchmark.add_subparsers(dest="benchmark_command", required=True)
@@ -122,57 +108,6 @@ def main(argv: list[str] | None = None) -> int:
                 f"balanced_accuracy={metrics['balanced_accuracy']:.3f} "
                 f"mcc={metrics['mcc']:.3f}"
             )
-        return 0
-
-    if args.command == "run-cnn-benchmark":
-        from seqtrainer.benchmarks import load_benchmark_config, run_benchmark
-
-        benchmark = load_benchmark_config(args.config)
-        if benchmark.model.family != "cnn":
-            raise ValueError("run-cnn-benchmark requires a CNN configuration")
-        split_files = dict(benchmark.dataset.split_files)
-        for split in ("train", "validation", "test"):
-            override = getattr(args, f"{split}_csv")
-            if override is not None:
-                split_files[split] = str(override)
-        training_overrides = {
-            field: value
-            for field, value in {
-                "seed": args.seed,
-                "batch_size": args.batch_size,
-                "max_epochs": args.cycles,
-                "learning_rate": args.learning_rate,
-            }.items()
-            if value is not None
-        }
-        benchmark = replace(
-            benchmark,
-            dataset=replace(benchmark.dataset, split_files=split_files),
-            training=replace(benchmark.training, **training_overrides),
-        )
-        if args.seed is not None:
-            benchmark = replace(
-                benchmark,
-                experiment=replace(benchmark.experiment, seed=args.seed),
-                split=replace(benchmark.split, seed=args.seed),
-            )
-        if args.sequence_length is not None:
-            benchmark = replace(
-                benchmark,
-                preprocessing=replace(benchmark.preprocessing, sequence_length=args.sequence_length),
-            )
-        if args.device is not None:
-            benchmark = replace(benchmark, environment=replace(benchmark.environment, device=args.device))
-        result = run_benchmark(benchmark, base_dir=Path.cwd(), output_dir=args.output_dir)
-        print(f"output_dir={result.output_dir}")
-        print(f"threshold={result.manifest['threshold_selection']['threshold']:.3f}")
-        for split, metrics in result.metrics.items():
-            print(
-                f"{split}: "
-                f"accuracy={metrics['accuracy']:.3f} "
-                f"balanced_accuracy={metrics['balanced_accuracy']:.3f} "
-                f"mcc={metrics['mcc']:.3f}"
-        )
         return 0
 
     if args.command == "benchmark":

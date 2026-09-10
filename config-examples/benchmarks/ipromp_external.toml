@@ -37,7 +37,6 @@ pad_or_trim = false
 kmer_size = 6
 tokenization = "overlapping_6mer"
 alphabet = "ACGTN"
-max_length = 300
 
 [model]
 family = "ipromp"
@@ -48,7 +47,6 @@ version = "zenodo-15180139"
 adapter_mode = "external_fasta_prediction"
 species_id = 10
 species_name = "Escherichia coli str K-12 substr. MG1655"
-kmer_size = 6
 model_family_source = "official_ipromp"
 official_repo = "https://github.com/Jackie-Suv/iPro-MP"
 paper_url = "https://link.springer.com/article/10.1186/s13059-025-03819-9"
@@ -56,7 +54,6 @@ pretrained_model_source = "https://doi.org/10.5281/zenodo.15180139"
 dnabert6_path = "./external/iPro-MP/DNABERT-6"
 ipromp_repo_dir = "./external/iPro-MP"
 ipromp_model_dir = "./external/iPro-MP/models"
-max_length = 300
 fasta_output_dir = "outputs/benchmarks/ipromp_external_ep_genomic_order/ipromp_fasta"
 mapping_csv = "outputs/benchmarks/ipromp_external_ep_genomic_order/ipromp_id_mapping.csv"
 train_predictions_csv = "outputs/benchmarks/ipromp_external_ep_genomic_order/external_predictions/train_predictions.csv"

@@ -36,7 +36,6 @@ pad_or_trim = false
 [preprocessing.params]
 kmer_size = 6
 tokenization = "overlapping_6mer"
-model_max_length = 300
 
 [model]
 family = "ipromp"
@@ -47,9 +46,6 @@ version = "zenodo-15180139"
 adapter_mode = "seqtrainer_official_fold_ensemble"
 species_id = 10
 species_name = "Escherichia coli str K-12 substr. MG1655"
-kmer_size = 6
-folds = 5
-max_length = 300
 inference_batch_size = 4
 dnabert6_source = "zhihan1996/DNA_bert_6"
 pretrained_model_source = "https://doi.org/10.5281/zenodo.15180139"

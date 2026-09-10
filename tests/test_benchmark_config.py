@@ -76,7 +76,6 @@ def test_t4_profiles_preserve_the_shared_scientific_contract():
     assert dnabert2.training.params["gradient_accumulation_steps"] == 16
     assert dnabert2.environment.precision == "fp16"
 
-    assert ipromp.model.params["folds"] == 5
     assert ipromp.model.params["species_id"] == 10
     assert ipromp.training.max_epochs == 0
 
@@ -118,9 +117,9 @@ def test_required_metric_suite_is_enforced(raw_config):
         parse_benchmark_config(raw_config)
 
 
-def test_numeric_target_threshold_is_rejected_as_unimplemented(raw_config):
+def test_numeric_target_threshold_is_not_an_allowed_label_source(raw_config):
     raw_config["label"]["source"] = "numeric_target_threshold"
-    with pytest.raises(ConfigValidationError, match="not implemented"):
+    with pytest.raises(ConfigValidationError, match="label.source"):
         parse_benchmark_config(raw_config)
 
 

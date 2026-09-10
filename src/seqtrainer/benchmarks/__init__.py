@@ -1,7 +1,6 @@
 """Benchmark configuration, split, manifest, and artifact helpers."""
 
 from .artifacts import write_benchmark_outputs, write_json, write_metrics_csv, write_table_csv
-from .ai_x_bio import PreparedAiXBioDataset, prepare_ai_x_bio_splits
 from .compare import compare_benchmark_outputs
 from .config import (
     BenchmarkConfig,
@@ -20,7 +19,6 @@ __all__ = [
     "BenchmarkRunResult",
     "BenchmarkSkipped",
     "ConfigValidationError",
-    "PreparedAiXBioDataset",
     "REQUIRED_CLASSIFICATION_METRICS",
     "build_run_manifest",
     "compare_benchmark_outputs",
@@ -30,7 +28,6 @@ __all__ = [
     "ImbalancePolicy",
     "load_benchmark_config",
     "load_predefined_split_frames",
-    "prepare_ai_x_bio_splits",
     "prepare_dnabert2_tokenized_splits",
     "resolve_split_paths",
     "runtime_metadata",

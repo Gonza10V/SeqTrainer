@@ -54,6 +54,7 @@ def prepare_dnabert2_tokenized_splits(
         trust_remote_code=trust_remote_code,
         allow_download=allow_download,
         require_model_files=require_model_files,
+        revision=params.get("revision"),
     )
     frames = load_predefined_split_frames(config, base_dir=base_dir)
     if max_rows_per_split is not None:
@@ -78,6 +79,7 @@ def prepare_dnabert2_tokenized_splits(
 
     metadata = {
         "model_name": model_name,
+        "revision": params.get("revision"),
         "tokenizer_class": tokenizer.__class__.__name__,
         "tokenizer_vocab_size": _safe_vocab_size(tokenizer),
         "trust_remote_code": trust_remote_code,
@@ -101,6 +103,7 @@ def _load_tokenizer(
     trust_remote_code: bool,
     allow_download: bool,
     require_model_files: bool,
+    revision: str | None = None,
 ) -> Any:
     try:
         from transformers import AutoTokenizer
@@ -115,6 +118,7 @@ def _load_tokenizer(
             model_name,
             trust_remote_code=trust_remote_code,
             local_files_only=local_files_only,
+            revision=revision,
         )
     except OSError as exc:
         raise BenchmarkSkipped(

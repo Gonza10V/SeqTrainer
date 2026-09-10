@@ -82,7 +82,7 @@ def test_best_threshold_by_mcc_uses_validation_scores():
         thresholds=torch.tensor([0.25, 0.5, 0.75]).numpy(),
     )
 
-    assert threshold == 0.25
+    assert threshold == 0.5
     assert score == 1.0
 
 

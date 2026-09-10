@@ -91,7 +91,7 @@ def run_dnabert2_csv_splits(
         _enable_gradient_checkpointing(encoder)
 
     hidden_size = int(getattr(encoder.config, "hidden_size", 768))
-    model = _DnaBert2Classifier(
+    model = _build_classifier(
         encoder=encoder,
         hidden_size=hidden_size,
         pooling=str(params.get("pooling", "mean")),
@@ -553,31 +553,24 @@ def _run_frozen_embedding_classifier(
     return BenchmarkRunResult(output_dir=out_dir, status="completed", metrics=metrics, manifest=manifest)
 
 
-class _DnaBert2Classifier:
-    def __init__(self, encoder: Any, hidden_size: int, pooling: str, dropout: float) -> None:
-        from torch import nn
+def _build_classifier(encoder: Any, hidden_size: int, pooling: str, dropout: float) -> Any:
+    from torch import nn
 
-        class _Model(nn.Module):
-            def __init__(self) -> None:
-                super().__init__()
-                self.encoder = encoder
-                self.pooling = pooling
-                self.dropout = nn.Dropout(dropout)
-                self.head = nn.Linear(hidden_size, 1)
+    class _Model(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.encoder = encoder
+            self.pooling = pooling
+            self.dropout = nn.Dropout(dropout)
+            self.head = nn.Linear(hidden_size, 1)
 
-            def forward(self, input_ids: Any, attention_mask: Any) -> Any:
-                outputs = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
-                hidden = _last_hidden_state(outputs)
-                pooled = _pool_hidden_states(hidden, attention_mask, self.pooling)
-                return self.head(self.dropout(pooled)).squeeze(-1)
+        def forward(self, input_ids: Any, attention_mask: Any) -> Any:
+            outputs = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
+            hidden = _last_hidden_state(outputs)
+            pooled = _pool_hidden_states(hidden, attention_mask, self.pooling)
+            return self.head(self.dropout(pooled)).squeeze(-1)
 
-        self._model = _Model()
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._model, name)
-
-    def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        return self._model(*args, **kwargs)
+    return _Model()
 
 
 def _normalize_binary_labels(config: BenchmarkConfig, frame: pd.DataFrame) -> Any:
@@ -800,10 +793,6 @@ def _enable_gradient_checkpointing(model: Any) -> None:
     config = getattr(model, "config", None)
     if config is not None and hasattr(config, "use_cache"):
         config.use_cache = False
-
-
-def _ensure_pad_token_id(config: Any, tokenizer: Any) -> None:
-    _set_pad_token_id(config, _safe_pad_token_id(tokenizer))
 
 
 def _safe_pad_token_id(tokenizer: Any) -> int:

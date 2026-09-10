@@ -242,7 +242,7 @@ def normalize_ipromp_predictions(
     mapping_path = _resolve_input_path(mapping_csv, base_dir)
     if not mapping_path.exists():
         raise FileNotFoundError(f"Missing iPro-MP mapping CSV: {mapping_path}")
-    mapping = pd.read_csv(mapping_path)
+    mapping = pd.read_csv(mapping_path, dtype={"sequence_id": str})
     _validate_mapping(mapping)
     current_frames = frames or load_predefined_split_frames(config, base_dir=base_dir)
     _validate_mapping_matches_frames(config, mapping, current_frames)
@@ -532,7 +532,7 @@ def _validate_mapping_matches_frames(
 def _read_prediction_table(path: Path) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"Missing iPro-MP prediction file: {path}")
-    return pd.read_csv(path, sep=None, engine="python")
+    return pd.read_csv(path, sep=None, engine="python", dtype={"sequence_id": str})
 
 
 def _resolve_output_path(
@@ -561,10 +561,6 @@ def _resolve_input_path(path: str | Path, base_dir: str | Path | None) -> Path:
     return Path(base_dir or Path.cwd()) / resolved
 
 
-def _as_posix(path: str | Path) -> str:
-    return Path(path).as_posix()
-
-
 def _encode_fasta_value(value: Any) -> str:
     """Encode metadata values so FASTA pipe-delimited headers remain parseable."""
     return "url:" + quote(str(value), safe="")
@@ -578,5 +574,5 @@ def _decode_fasta_value(value: Any) -> str:
 def _script_path(path: str | Path) -> str:
     resolved = Path(path)
     if resolved.is_absolute():
-        return '"' + _as_posix(resolved) + '"'
-    return '"${SEQTRAINER_ROOT}/' + _as_posix(resolved) + '"'
+        return '"' + resolved.as_posix() + '"'
+    return '"${SEQTRAINER_ROOT}/' + resolved.as_posix() + '"'

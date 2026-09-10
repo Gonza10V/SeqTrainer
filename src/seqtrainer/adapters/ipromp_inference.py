@@ -118,7 +118,7 @@ def run_ipromp_ensemble(
     except ImportError as exc:  # pragma: no cover - depends on the external environment
         raise RuntimeError(
             "iPro-MP inference requires torch, transformers, numpy, and pandas. "
-            "Install the Alpine environment documented in the iPro-MP benchmark README."
+            "Install with `python -m pip install -e \".[torch]\"`."
         ) from exc
 
     _seed_everything(seed, random_module=random, numpy_module=np, torch_module=torch)
@@ -181,10 +181,7 @@ def run_ipromp_ensemble(
 
     for checkpoint in checkpoints:
         model = PromoterClassifier()
-        try:
-            raw_state = torch.load(checkpoint, map_location="cpu", weights_only=True)
-        except TypeError:  # pragma: no cover - for older supported torch releases
-            raw_state = torch.load(checkpoint, map_location="cpu")
+        raw_state = torch.load(checkpoint, map_location="cpu", weights_only=True)
         model.load_state_dict(normalize_state_dict(raw_state), strict=True)
         model.to(resolved_device)
         model.eval()

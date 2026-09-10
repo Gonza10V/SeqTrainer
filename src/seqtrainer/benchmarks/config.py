@@ -32,13 +32,6 @@ _ALLOWED_LABEL_SOURCES = {
     "curated_binary",
     "numeric_target_threshold",
 }
-_ALLOWED_SPLIT_STRATEGIES = {
-    "predefined",
-    "train_val_test",
-    "k_fold",
-    "stratified_group_k_fold",
-}
-_IMPLEMENTED_SPLIT_STRATEGIES = {"predefined"}
 _ALLOWED_THRESHOLD_STRATEGIES = {
     "validation_mcc",
     "validation_f1",
@@ -70,7 +63,6 @@ class DatasetConfig:
     source_url: str = ""
     version: str = ""
     id_field: Optional[str] = None
-    group_field: Optional[str] = None
     split_files: Mapping[str, str] = field(default_factory=dict)
     params: Mapping[str, Any] = field(default_factory=dict)
 
@@ -80,20 +72,12 @@ class LabelConfig:
     source: str
     positive_label: Any = 1
     negative_label: Any = 0
-    target_field: Optional[str] = None
-    threshold_strategy: Optional[str] = None
-    threshold_value: Optional[float] = None
 
 
 @dataclass(frozen=True)
 class SplitConfig:
     strategy: str
     seed: int
-    train_size: Optional[float] = None
-    validation_size: Optional[float] = None
-    test_size: Optional[float] = None
-    n_splits: Optional[int] = None
-    group_field: Optional[str] = None
     validation_name: str = "validation"
 
 
@@ -211,7 +195,6 @@ def parse_benchmark_config(raw: Mapping[str, Any], source: str = "<memory>") -> 
             source_url=str(dataset_raw.get("source_url", "")),
             version=str(dataset_raw.get("version", "")),
             id_field=_optional_str(dataset_raw.get("id_field")),
-            group_field=_optional_str(dataset_raw.get("group_field")),
             split_files=_string_mapping(dataset_raw.get("split_files", {}), "dataset.split_files", source),
             params=_mapping(dataset_raw.get("params", {}), "dataset.params", source),
         ),
@@ -219,18 +202,10 @@ def parse_benchmark_config(raw: Mapping[str, Any], source: str = "<memory>") -> 
             source=_required_str(label_raw, "label.source", source),
             positive_label=label_raw.get("positive_label", 1),
             negative_label=label_raw.get("negative_label", 0),
-            target_field=_optional_str(label_raw.get("target_field")),
-            threshold_strategy=_optional_str(label_raw.get("threshold_strategy")),
-            threshold_value=_optional_float(label_raw.get("threshold_value"), "label.threshold_value", source),
         ),
         split=SplitConfig(
             strategy=_required_str(split_raw, "split.strategy", source),
             seed=_required_int(split_raw, "split.seed", source),
-            train_size=_optional_float(split_raw.get("train_size"), "split.train_size", source),
-            validation_size=_optional_float(split_raw.get("validation_size"), "split.validation_size", source),
-            test_size=_optional_float(split_raw.get("test_size"), "split.test_size", source),
-            n_splits=_optional_int(split_raw.get("n_splits"), "split.n_splits", source),
-            group_field=_optional_str(split_raw.get("group_field")),
             validation_name=str(split_raw.get("validation_name", "validation")),
         ),
         preprocessing=PreprocessingConfig(
@@ -281,7 +256,6 @@ def parse_benchmark_config(raw: Mapping[str, Any], source: str = "<memory>") -> 
 def _validate_config(config: BenchmarkConfig, source: str) -> None:
     _validate_allowed(config.dataset.format, _ALLOWED_DATASET_FORMATS, "dataset.format", source)
     _validate_allowed(config.label.source, _ALLOWED_LABEL_SOURCES, "label.source", source)
-    _validate_allowed(config.split.strategy, _ALLOWED_SPLIT_STRATEGIES, "split.strategy", source)
     _validate_allowed(config.model.family, _ALLOWED_MODEL_FAMILIES, "model.family", source)
     _validate_allowed(
         config.evaluation.threshold_strategy,
@@ -304,30 +278,7 @@ def _validate_config(config: BenchmarkConfig, source: str) -> None:
                 f"{sorted(required)}; missing {sorted(missing)}"
             )
 
-    if config.split.strategy == "train_val_test":
-        sizes = (config.split.train_size, config.split.validation_size, config.split.test_size)
-        if any(size is None for size in sizes):
-            raise ConfigValidationError(
-                f"{source}: split.strategy='train_val_test' requires split.train_size, "
-                "split.validation_size, and split.test_size"
-            )
-        if round(sum(size for size in sizes if size is not None), 7) != 1.0:
-            raise ConfigValidationError(f"{source}: train/validation/test split sizes must sum to 1.0")
-
-    if config.split.strategy in {"k_fold", "stratified_group_k_fold"}:
-        if config.split.n_splits is None or config.split.n_splits < 2:
-            raise ConfigValidationError(
-                f"{source}: split.strategy='{config.split.strategy}' requires split.n_splits >= 2"
-            )
-
-    if config.split.strategy == "stratified_group_k_fold":
-        group_field = config.split.group_field or config.dataset.group_field
-        if not group_field:
-            raise ConfigValidationError(
-                f"{source}: stratified_group_k_fold requires split.group_field or dataset.group_field"
-            )
-
-    if config.split.strategy not in _IMPLEMENTED_SPLIT_STRATEGIES:
+    if config.split.strategy != "predefined":
         raise ConfigValidationError(
             f"{source}: split.strategy={config.split.strategy!r} is not implemented by the benchmark runners; "
             "use split.strategy='predefined' with train/validation/test CSV files."

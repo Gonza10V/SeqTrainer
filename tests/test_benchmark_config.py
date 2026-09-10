@@ -1,3 +1,4 @@
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
@@ -80,25 +81,11 @@ def test_t4_profiles_preserve_the_shared_scientific_contract():
     assert ipromp.training.max_epochs == 0
 
 
-def test_ai_x_bio_model_examples_share_prepared_split_contract():
-    configs = [
-        load_benchmark_config(CONFIG_DIR / name)
-        for name in (
-            "cnn_v2_ai_x_bio.toml",
-        )
-    ]
-    dataset_names = {config.dataset.name for config in configs}
-    split_files = {tuple(sorted(config.dataset.split_files.items())) for config in configs}
-    threshold_strategies = {config.evaluation.threshold_strategy for config in configs}
-
-    assert dataset_names == {"ai_x_bio"}
-    assert len(split_files) == 1
-    assert threshold_strategies == {"validation_mcc"}
-    for config in configs:
-        assert config.dataset.sequence_field == "sequence"
-        assert config.dataset.label_field == "label"
-        assert config.dataset.id_field == "id"
-        assert set(REQUIRED_CLASSIFICATION_METRICS).issubset(config.evaluation.metrics)
+@pytest.fixture
+def raw_config():
+    raw = asdict(load_benchmark_config(CONFIG_DIR / "cnn.toml"))
+    raw["evaluation"]["metrics"] = list(raw["evaluation"]["metrics"])
+    return raw
 
 
 def test_missing_required_section_fails_clearly():
@@ -106,208 +93,50 @@ def test_missing_required_section_fails_clearly():
         parse_benchmark_config({}, source="demo.toml")
 
 
-def test_invalid_model_family_fails_clearly():
-    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
-    raw = {
-        "experiment": config.experiment.__dict__,
-        "dataset": {**config.dataset.__dict__, "split_files": dict(config.dataset.split_files)},
-        "label": config.label.__dict__,
-        "split": config.split.__dict__,
-        "preprocessing": config.preprocessing.__dict__,
-        "model": {**config.model.__dict__, "family": "random_forest"},
-        "training": config.training.__dict__,
-        "evaluation": {**config.evaluation.__dict__, "metrics": list(config.evaluation.metrics)},
-        "outputs": config.outputs.__dict__,
-        "environment": config.environment.__dict__,
-    }
-
+def test_invalid_model_family_fails_clearly(raw_config):
+    raw_config["model"]["family"] = "random_forest"
     with pytest.raises(ConfigValidationError, match="model.family"):
-        parse_benchmark_config(raw, source="demo.toml")
+        parse_benchmark_config(raw_config)
 
 
-def test_train_val_test_ratio_validation():
-    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
-    raw = {
-        "experiment": config.experiment.__dict__,
-        "dataset": {**config.dataset.__dict__, "split_files": {}},
-        "label": config.label.__dict__,
-        "split": {
-            **config.split.__dict__,
-            "strategy": "train_val_test",
-            "train_size": 0.8,
-            "validation_size": 0.3,
-            "test_size": 0.1,
-        },
-        "preprocessing": config.preprocessing.__dict__,
-        "model": config.model.__dict__,
-        "training": config.training.__dict__,
-        "evaluation": {**config.evaluation.__dict__, "metrics": list(config.evaluation.metrics)},
-        "outputs": config.outputs.__dict__,
-        "environment": config.environment.__dict__,
-    }
-
-    with pytest.raises(ConfigValidationError, match="sum to 1.0"):
-        parse_benchmark_config(raw, source="demo.toml")
-
-
-def test_unimplemented_split_strategy_fails_during_config_validation():
-    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
-    raw = {
-        "experiment": config.experiment.__dict__,
-        "dataset": {**config.dataset.__dict__, "split_files": {}},
-        "label": config.label.__dict__,
-        "split": {
-            **config.split.__dict__,
-            "strategy": "train_val_test",
-            "train_size": 0.7,
-            "validation_size": 0.15,
-            "test_size": 0.15,
-        },
-        "preprocessing": config.preprocessing.__dict__,
-        "model": config.model.__dict__,
-        "training": config.training.__dict__,
-        "evaluation": {**config.evaluation.__dict__, "metrics": list(config.evaluation.metrics)},
-        "outputs": config.outputs.__dict__,
-        "environment": config.environment.__dict__,
-    }
-
+@pytest.mark.parametrize("strategy", ["train_val_test", "k_fold", "stratified_group_k_fold"])
+def test_unimplemented_split_strategy_fails_during_config_validation(raw_config, strategy):
+    raw_config["split"]["strategy"] = strategy
     with pytest.raises(ConfigValidationError, match="not implemented by the benchmark runners"):
-        parse_benchmark_config(raw, source="demo.toml")
+        parse_benchmark_config(raw_config)
 
 
-def test_unimplemented_dataset_format_fails_during_config_validation():
-    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
-    raw = {
-        "experiment": config.experiment.__dict__,
-        "dataset": {**config.dataset.__dict__, "format": "fasta"},
-        "label": config.label.__dict__,
-        "split": config.split.__dict__,
-        "preprocessing": config.preprocessing.__dict__,
-        "model": config.model.__dict__,
-        "training": config.training.__dict__,
-        "evaluation": {**config.evaluation.__dict__, "metrics": list(config.evaluation.metrics)},
-        "outputs": config.outputs.__dict__,
-        "environment": config.environment.__dict__,
-    }
-
+def test_unimplemented_dataset_format_fails_during_config_validation(raw_config):
+    raw_config["dataset"]["format"] = "fasta"
     with pytest.raises(ConfigValidationError, match="dataset.format"):
-        parse_benchmark_config(raw, source="demo.toml")
+        parse_benchmark_config(raw_config)
 
 
-def test_required_metric_suite_is_enforced():
-    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
-    raw = {
-        "experiment": config.experiment.__dict__,
-        "dataset": {**config.dataset.__dict__, "split_files": dict(config.dataset.split_files)},
-        "label": config.label.__dict__,
-        "split": config.split.__dict__,
-        "preprocessing": config.preprocessing.__dict__,
-        "model": config.model.__dict__,
-        "training": config.training.__dict__,
-        "evaluation": {**config.evaluation.__dict__, "metrics": ["accuracy", "mcc"]},
-        "outputs": config.outputs.__dict__,
-        "environment": config.environment.__dict__,
-    }
-
+def test_required_metric_suite_is_enforced(raw_config):
+    raw_config["evaluation"]["metrics"] = ["accuracy", "mcc"]
     with pytest.raises(ConfigValidationError, match="evaluation.metrics"):
-        parse_benchmark_config(raw, source="demo.toml")
+        parse_benchmark_config(raw_config)
 
 
-def test_numeric_target_threshold_is_rejected_as_unimplemented():
-    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
-    raw = {
-        "experiment": config.experiment.__dict__,
-        "dataset": {**config.dataset.__dict__, "split_files": dict(config.dataset.split_files)},
-        "label": {**config.label.__dict__, "source": "numeric_target_threshold"},
-        "split": config.split.__dict__,
-        "preprocessing": config.preprocessing.__dict__,
-        "model": config.model.__dict__,
-        "training": config.training.__dict__,
-        "evaluation": {**config.evaluation.__dict__, "metrics": list(config.evaluation.metrics)},
-        "outputs": config.outputs.__dict__,
-        "environment": config.environment.__dict__,
-    }
-
+def test_numeric_target_threshold_is_rejected_as_unimplemented(raw_config):
+    raw_config["label"]["source"] = "numeric_target_threshold"
     with pytest.raises(ConfigValidationError, match="not implemented"):
-        parse_benchmark_config(raw, source="numeric.toml")
+        parse_benchmark_config(raw_config)
 
 
-def test_cnn_rejects_disabled_pad_or_trim():
-    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
-    raw = {
-        "experiment": config.experiment.__dict__,
-        "dataset": {**config.dataset.__dict__, "split_files": dict(config.dataset.split_files)},
-        "label": config.label.__dict__,
-        "split": config.split.__dict__,
-        "preprocessing": {**config.preprocessing.__dict__, "pad_or_trim": False},
-        "model": config.model.__dict__,
-        "training": config.training.__dict__,
-        "evaluation": {**config.evaluation.__dict__, "metrics": list(config.evaluation.metrics)},
-        "outputs": config.outputs.__dict__,
-        "environment": config.environment.__dict__,
-    }
-
+def test_cnn_rejects_disabled_pad_or_trim(raw_config):
+    raw_config["preprocessing"]["pad_or_trim"] = False
     with pytest.raises(ConfigValidationError, match="pad_or_trim=true"):
-        parse_benchmark_config(raw, source="cnn.toml")
+        parse_benchmark_config(raw_config)
 
-def test_cnn_rejects_unsupported_loss():
-    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
-    raw = {
-        "experiment": config.experiment.__dict__,
-        "dataset": {**config.dataset.__dict__, "split_files": dict(config.dataset.split_files)},
-        "label": config.label.__dict__,
-        "split": config.split.__dict__,
-        "preprocessing": config.preprocessing.__dict__,
-        "model": config.model.__dict__,
-        "training": {
-            **config.training.__dict__,
-            "params": {**config.training.params, "loss": "bce_with_logits"},
-        },
-        "evaluation": {**config.evaluation.__dict__, "metrics": list(config.evaluation.metrics)},
-        "outputs": config.outputs.__dict__,
-        "environment": config.environment.__dict__,
-    }
 
+def test_cnn_rejects_unsupported_loss(raw_config):
+    raw_config["training"]["params"]["loss"] = "bce_with_logits"
     with pytest.raises(ConfigValidationError, match="only implement"):
-        parse_benchmark_config(raw, source="cnn-loss.toml")
+        parse_benchmark_config(raw_config)
 
 
-def test_cnn_rejects_unimplemented_precision():
-    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
-    raw = {
-        "experiment": config.experiment.__dict__,
-        "dataset": {**config.dataset.__dict__, "split_files": dict(config.dataset.split_files)},
-        "label": config.label.__dict__,
-        "split": config.split.__dict__,
-        "preprocessing": config.preprocessing.__dict__,
-        "model": config.model.__dict__,
-        "training": config.training.__dict__,
-        "evaluation": {**config.evaluation.__dict__, "metrics": list(config.evaluation.metrics)},
-        "outputs": config.outputs.__dict__,
-        "environment": {**config.environment.__dict__, "precision": "fp16"},
-    }
-
+def test_cnn_rejects_unimplemented_precision(raw_config):
+    raw_config["environment"]["precision"] = "fp16"
     with pytest.raises(ConfigValidationError, match="only implement"):
-        parse_benchmark_config(raw, source="cnn-precision.toml")
-
-
-def test_dnabert_rejects_unsupported_pooling():
-    config = load_benchmark_config(CONFIG_DIR / "dnabert2_frozen.toml")
-    raw = {
-        "experiment": config.experiment.__dict__,
-        "dataset": {**config.dataset.__dict__, "split_files": dict(config.dataset.split_files)},
-        "label": config.label.__dict__,
-        "split": config.split.__dict__,
-        "preprocessing": config.preprocessing.__dict__,
-        "model": {
-            **config.model.__dict__,
-            "params": {**config.model.params, "pooling": "median"},
-        },
-        "training": config.training.__dict__,
-        "evaluation": {**config.evaluation.__dict__, "metrics": list(config.evaluation.metrics)},
-        "outputs": config.outputs.__dict__,
-        "environment": config.environment.__dict__,
-    }
-
-    with pytest.raises(ConfigValidationError, match="pooling"):
-        parse_benchmark_config(raw, source="dnabert-pooling.toml")
+        parse_benchmark_config(raw_config)

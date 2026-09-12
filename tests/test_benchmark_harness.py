@@ -164,7 +164,17 @@ def test_benchmark_artifact_writers_create_json_and_csv(tmp_path):
     assert metrics_csv.loc[0, "split"] == "validation"
 
 
-def test_benchmark_manifest_cli_writes_shared_manifest(tmp_path, capsys):
+def test_benchmark_manifest_cli_writes_shared_manifest(tmp_path, capsys, monkeypatch):
+    import seqtrainer.benchmarks as benchmarks
+
+    manifest_capture = {}
+    original_build_run_manifest = benchmarks.build_run_manifest
+
+    def record_repo_dir(*args, **kwargs):
+        manifest_capture["repo_dir"] = kwargs.get("repo_dir")
+        return original_build_run_manifest(*args, **kwargs)
+
+    monkeypatch.setattr(benchmarks, "build_run_manifest", record_repo_dir)
     split_dir = tmp_path / "data" / "promoter_classification"
     split_dir.mkdir(parents=True)
     split_sequences = {
@@ -195,6 +205,7 @@ def test_benchmark_manifest_cli_writes_shared_manifest(tmp_path, capsys):
     assert "train: rows=2" in captured.out
     assert (output_dir / "manifest.json").exists()
     assert (output_dir / "config.json").exists()
+    assert manifest_capture["repo_dir"] == tmp_path
 
 
 def test_artifact_save_flags_are_honored(tmp_path):
@@ -1040,7 +1051,10 @@ def test_benchmark_compare_cli_and_helper_rank_test_metrics(tmp_path, capsys):
     for out_dir, mcc, auprc in ((first, 0.2, 0.6), (second, 0.8, 0.9)):
         manifest = build_run_manifest(
             config,
-            split_summary={"test": {"rows": 2, "class_counts": {"0": 1, "1": 1}}},
+            split_summary={
+                split: {"rows": 2, "class_counts": {"0": 1, "1": 1}, "content_sha256": split}
+                for split in ("train", "validation", "test")
+            },
             threshold=0.5,
         )
         metrics = {
@@ -1088,7 +1102,10 @@ def test_benchmark_compare_ignores_skipped_artifact_with_stale_metrics(tmp_path)
     ):
         manifest = build_run_manifest(
             current_config,
-            split_summary={"test": {"rows": 2, "class_counts": {"0": 1, "1": 1}}},
+            split_summary={
+                split: {"rows": 2, "class_counts": {"0": 1, "1": 1}, "content_sha256": split}
+                for split in ("train", "validation", "test")
+            },
             threshold=0.5,
             extra={"status": status},
         )
@@ -1386,10 +1403,20 @@ def test_comparison_rejects_different_split_content_digest(tmp_path):
         split: {"rows": 2, "class_counts": {"0": 1, "1": 1}, "content_sha256": f"{split}-a"}
         for split in ("train", "validation", "test")
     }
-    first_manifest = build_run_manifest(config, split_summary=split_summary, threshold=0.5)
+    first_manifest = build_run_manifest(
+        config,
+        split_summary=split_summary,
+        threshold=0.5,
+        extra={"status": "completed"},
+    )
     second_summary = {split: dict(values) for split, values in split_summary.items()}
     second_summary["test"]["content_sha256"] = "test-b"
-    second_manifest = build_run_manifest(config, split_summary=second_summary, threshold=0.5)
+    second_manifest = build_run_manifest(
+        config,
+        split_summary=second_summary,
+        threshold=0.5,
+        extra={"status": "completed"},
+    )
 
     write_benchmark_outputs(
         tmp_path / "first",
@@ -1422,7 +1449,15 @@ def test_comparison_rejects_different_dataset_metadata(tmp_path):
         out_dir = tmp_path / name
         write_benchmark_outputs(
             out_dir,
-            manifest=build_run_manifest(current_config, threshold=0.5),
+            manifest=build_run_manifest(
+                current_config,
+                split_summary={
+                    split: {"content_sha256": split}
+                    for split in ("train", "validation", "test")
+                },
+                threshold=0.5,
+                extra={"status": "completed"},
+            ),
             metrics=metrics,
             config=current_config,
         )
@@ -1432,6 +1467,19 @@ def test_comparison_rejects_different_dataset_metadata(tmp_path):
             [tmp_path / "first", tmp_path / "second"],
             output_dir=tmp_path / "comparison",
         )
+
+
+def test_comparison_rejects_artifact_without_split_content_digests(tmp_path):
+    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
+    write_benchmark_outputs(
+        tmp_path / "missing_contract",
+        manifest=build_run_manifest(config, extra={"status": "completed"}),
+        metrics={"test": {"mcc": 0.2, "auprc": 0.4, "accuracy": 0.5}},
+        config=config,
+    )
+
+    with pytest.raises(ValueError, match="usable dataset contract"):
+        compare_benchmark_outputs([tmp_path / "missing_contract"], output_dir=tmp_path / "comparison")
 
 
 def test_ipromp_mapping_rejects_duplicate_configured_ids():

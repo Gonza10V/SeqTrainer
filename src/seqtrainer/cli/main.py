@@ -196,7 +196,9 @@ def _write_benchmark_manifest(config_path: Path, output_dir_arg: Path | None, ba
     benchmark = load_benchmark_config(config_path)
     frames = load_predefined_split_frames(benchmark, base_dir=base_dir)
     split_summary = summarize_split_frames(benchmark, frames)
-    manifest = build_run_manifest(benchmark, split_summary=split_summary)
+    manifest = build_run_manifest(
+        benchmark, repo_dir=base_dir, split_summary=split_summary
+    )
     output_dir = output_dir_arg or Path(benchmark.outputs.output_dir)
     written = write_benchmark_outputs(output_dir, manifest=manifest, config=benchmark)
 

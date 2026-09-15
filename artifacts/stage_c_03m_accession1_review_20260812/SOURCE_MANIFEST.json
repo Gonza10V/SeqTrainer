@@ -1,0 +1,28 @@
+{
+  "classification": "accession_completion_evidence_manifest",
+  "created_at_utc": "2026-08-13T01:20:09.010139+00:00",
+  "format_version": 1,
+  "sources": [
+    {
+      "path": "GoogleDrive/SeqTrainerStageC/runs/c19_v3_medium_adaptive_e25/scale_analysis_v1/evaluation/resume/adaptive.evaluation.pt",
+      "sha256_at_review": "a2b602e6debb2b3eef2b5d3e12d71b799e3af701f17c313ae693624a1a80dee7",
+      "note": "Mutable run checkpoint; accession-one accumulator fields are final after its ten streams completed."
+    },
+    {
+      "path": "GoogleDrive/SeqTrainerStageC/runs/c19_v3_medium_adaptive_e25/validation.json",
+      "sha256": "4d244d0900f3485a7085940a659907cab3c28b285722728de3dcef12cab50ee5"
+    },
+    {
+      "path": "GoogleDrive/SeqTrainerStageC/runs/c17_v3_c16_broad_baseline_resumable/pilot_evaluation/evaluation.json",
+      "sha256": "dbf38edfbf27af890e47d04c0c003ee846c8a654f165afff3d8c516dbdea1cdc"
+    },
+    {
+      "path": "GoogleDrive/SeqTrainerStageC/study/stage_c_ecoli_medium_deep_memory_v3/panels/validation.json",
+      "sha256": "2b1450dc69beb839724e5e5207a2fbc132cd43297ffd5e839050e403b1bdf316"
+    },
+    {
+      "path": "studies/stage_c_ecoli_medium_deep_memory_v3/protocol.json",
+      "role": "frozen thresholds and claim limits"
+    }
+  ]
+}

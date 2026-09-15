@@ -1,0 +1,57 @@
+{
+  "all_reported_numbers_finite": true,
+  "assessment_mode": "smoke",
+  "assessment_report": "/content/drive/MyDrive/C19GenerativeStatusInput/results/step_00026250_e08d96cab980/smoke/generation_evaluation.json",
+  "baseline_report": "/content/drive/MyDrive/C19GenerativeStatusInput/c16_generation_evaluation.json",
+  "checkpoint_optimizer_step": 26250,
+  "checkpoint_processed_bases": 15120000,
+  "checkpoint_sha256": "e08d96cab9808b45a8972e36f0f50fcf5754e012565c35f685b0d555f3da8b4f",
+  "classification": "exploratory_checkpoint_generative_status",
+  "comparison_to_c16": null,
+  "decision": "SMOKE_FINITE_WITH_CALIBRATION_WARNING",
+  "format_version": 1,
+  "frozen_e25_generation_component_passed": null,
+  "groups": {
+    "temperature_0.6": {
+      "aligned_six_mer_diversity_ratio": 0.4512448132780083,
+      "entropy_absolute_error": 0.026564622808930682,
+      "gc_absolute_error": 0.10774739583333331,
+      "heuristic_longest_orf_bases": 434.25,
+      "heuristic_orfs_at_least_90bp": 6.75,
+      "max_homopolymer": 6.0,
+      "six_mer_jsd": 0.45992032803903377
+    },
+    "temperature_0.8": {
+      "aligned_six_mer_diversity_ratio": 0.5031120331950207,
+      "entropy_absolute_error": 0.018572939019941836,
+      "gc_absolute_error": 0.08837890624999994,
+      "heuristic_longest_orf_bases": 696.75,
+      "heuristic_orfs_at_least_90bp": 8.0,
+      "max_homopolymer": 6.0,
+      "six_mer_jsd": 0.44131411661158304
+    },
+    "temperature_1": {
+      "aligned_six_mer_diversity_ratio": 0.4512448132780083,
+      "entropy_absolute_error": 0.009366580394495116,
+      "gc_absolute_error": 0.08138020833333331,
+      "heuristic_longest_orf_bases": 366.75,
+      "heuristic_orfs_at_least_90bp": 7.25,
+      "max_homopolymer": 6.25,
+      "six_mer_jsd": 0.43223819728750146
+    }
+  },
+  "limits": [
+    "A smoke result is operational evidence, not the frozen E25 generation gate.",
+    "The generation component alone cannot authorize E100; held-out prediction and controlled-memory gates are also required.",
+    "Generated ORFs and Prodigal calls do not establish biological function, expression, viability, fitness, or safety."
+  ],
+  "prodigal": "completed",
+  "smoke_calibration_warnings": [
+    "temperature_0.6: aligned 6-mer diversity ratio 0.451 is outside the exploratory 0.80-1.20 review band",
+    "temperature_0.6: GC absolute error 0.108 exceeds 0.05",
+    "temperature_0.8: aligned 6-mer diversity ratio 0.503 is outside the exploratory 0.80-1.20 review band",
+    "temperature_0.8: GC absolute error 0.088 exceeds 0.05",
+    "temperature_1: aligned 6-mer diversity ratio 0.451 is outside the exploratory 0.80-1.20 review band",
+    "temperature_1: GC absolute error 0.081 exceeds 0.05"
+  ]
+}

@@ -1,0 +1,87 @@
+{
+  "all_numeric_values_finite": true,
+  "base_windows": {
+    "0.5m_to_2m": {
+      "bases_per_second": 55.81675892163781,
+      "bits_per_base": 1.9917411804199219,
+      "gradient_norm": 1.741791844367981,
+      "memory_update_norm": 4.255203485488892,
+      "retrieval_norm": 569.270263671875,
+      "state_drift_norm": 278.4739799499512,
+      "steps": 2604,
+      "surprise_norm": 0.2577565014362335
+    },
+    "0_to_0.5m": {
+      "bases_per_second": 56.11617769507623,
+      "bits_per_base": 2.0193904638290405,
+      "gradient_norm": 2.3563374280929565,
+      "memory_update_norm": 6.678861856460571,
+      "retrieval_norm": 87.53835964202881,
+      "state_drift_norm": 272.0511360168457,
+      "steps": 868,
+      "surprise_norm": 0.33803874626755714
+    },
+    "2m_to_4m": {
+      "bases_per_second": 55.93455867366444,
+      "bits_per_base": 1.9645243883132935,
+      "gradient_norm": 1.6760557889938354,
+      "memory_update_norm": 2.1001228392124176,
+      "retrieval_norm": 695.9281311035156,
+      "state_drift_norm": 280.7162895202637,
+      "steps": 3472,
+      "surprise_norm": 0.16606534644961352
+    },
+    "4m_to_snapshot": {
+      "bases_per_second": 55.9146308695269,
+      "bits_per_base": 1.9658476114273071,
+      "gradient_norm": 1.6413438320159912,
+      "memory_update_norm": 1.9185870885849,
+      "retrieval_norm": 702.9802398681641,
+      "state_drift_norm": 280.930290222168,
+      "steps": 3333,
+      "surprise_norm": 0.1625376045703888
+    }
+  },
+  "bpb": {
+    "best_500_step_ending_bases": 3212928,
+    "best_500_step_ending_step": 5578,
+    "best_500_step_mean": 1.9563125386238098,
+    "first_500_step_mean": 2.0193955709934235,
+    "latest_500_step_mean": 1.9637620377540588
+  },
+  "estimated_remaining_gpu_hours": 100.4141567267048,
+  "format_version": 1,
+  "history_sha256": "023e682496ef9d58d014d13ecacf9c5c5374aea76cc8832a247f4bdf5336bafe",
+  "interventions": {
+    "legacy_surprise_fraction_max": 0.0,
+    "memory_gradient_fraction_max": 0.0,
+    "memory_gradient_scale_min": 1.0
+  },
+  "latest_500_step_means": {
+    "alpha_mean": 0.0012124796272254977,
+    "eta_mean": 0.8930254948933919,
+    "gradient_norm": 1.6355537066459656,
+    "memory_update_norm": 2.114925598978996,
+    "past_momentary_cosine_mean": 0.012446898777969746,
+    "raw_memory_gradient_rms_max": 0.027333388838916974,
+    "retrieval_norm": 687.0353199462891,
+    "state_drift_norm": 280.64907627868655,
+    "surprise_norm": 0.17367038647830485,
+    "theta_mean": 0.0011813971664911258,
+    "token_accuracy": 0.0010208333618938901,
+    "top_2_accuracy": 0.0022708333954215,
+    "written_state_gradient_norm": 71.09362018585205
+  },
+  "limits": [
+    "BPB and accuracy are per-training-step telemetry, not held-out validation.",
+    "The run was active when downloaded; files are a time-stamped snapshot.",
+    "The stale FAILED.txt describes the corrected pre-training seed mismatch, not this active trajectory."
+  ],
+  "optimizer_step": 10277,
+  "panel_target_bases_estimated_from_progress": 26062903,
+  "processed_bases": 5919552,
+  "progress_fraction": 0.22712558152098405,
+  "recent_bases_per_second": 55.722972339513824,
+  "records": 10277,
+  "snapshot_updated_at": "2026-08-04T14:40:45.652389+00:00"
+}

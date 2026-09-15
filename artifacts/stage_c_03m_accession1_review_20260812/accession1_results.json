@@ -1,0 +1,78 @@
+{
+  "classification": "completed_accession_interim_analysis",
+  "evidence_boundary_utc": "2026-08-13T01:20:09.010139+00:00",
+  "format_version": 1,
+  "identity": {
+    "accession": "GCF_000351405.1",
+    "ani99_group": "ani99_000014",
+    "assembly_level": "Scaffold",
+    "completeness_percent": 99.97,
+    "contamination_percent": 0.04,
+    "gc_fraction": 0.4772986528102792,
+    "split": "validation",
+    "training_ani99_isolated": true
+  },
+  "c19_complete_accession": {
+    "bits_per_base": 2.0060342394883097,
+    "negative_log_likelihood_sum": 7620687.054641724,
+    "planned_streams": 10,
+    "completed_streams": 10,
+    "segments": 32901,
+    "valid_bases": 5480628
+  },
+  "stream_segments": {
+    "NZ_KB733378.1": 6137,
+    "NZ_KB733379.1": 35,
+    "NZ_KB733380.1": 998,
+    "NZ_KB733381.1": 4179,
+    "NZ_KB733382.1": 6,
+    "NZ_KB733383.1": 3150,
+    "NZ_KB733384.1": 66,
+    "NZ_KB733385.1": 18308,
+    "NZ_KB733386.1": 14,
+    "NZ_KB733387.1": 8
+  },
+  "descriptive_comparisons": {
+    "c19_terminal_512_segment_prefix": {
+      "bits_per_base": 2.4274334731440708,
+      "segments": 512,
+      "valid_bases": 46924,
+      "c19_complete_minus_prefix_bpb": -0.42139923365576104,
+      "relative_bpb_reduction": 0.17359867461576795,
+      "comparison_limit": "Different coverage and memory history; descriptive, not an independent paired test."
+    },
+    "c16_256_segment_pilot_prefix": {
+      "bits_per_base": 2.1391129015274797,
+      "segments": 256,
+      "valid_bases": 37937,
+      "c19_complete_minus_c16_pilot_bpb": -0.13307866203916996,
+      "relative_bpb_reduction": 0.06221207957006022,
+      "comparison_limit": "Different model, coverage, and memory history; not admissible for the frozen paired gate."
+    },
+    "independent_base_reference": {
+      "bits_per_base": 2.0,
+      "c19_minus_reference_bpb": 0.006034239488309723
+    },
+    "e25_median_gate_reference": {
+      "bits_per_base": 1.96,
+      "c19_minus_reference_bpb": 0.04603423948830976,
+      "comparison_limit": "The threshold applies to the median of eight completed accession BPBs, not as a per-accession pass/fail rule."
+    }
+  },
+  "panel_context": {
+    "validation_accessions_completed": 1,
+    "validation_accessions_planned": 8,
+    "fraction_accessions_completed": 0.125,
+    "validation_segments_fraction_represented": 0.14608382914483617,
+    "validation_predictable_bases_fraction_represented": 0.13169625135453777
+  },
+  "not_available_for_this_accession": [
+    "accession-specific token accuracy",
+    "accession-specific top-2 accuracy",
+    "per-stream BPB",
+    "accession-specific memory diagnostic means and maxima",
+    "confidence interval from exported segment-level losses",
+    "coverage-matched full c16 baseline"
+  ]
+}
+

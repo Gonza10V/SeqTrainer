@@ -1,0 +1,148 @@
+{
+  "amendment_id": "adaptive_trailblazer_e100_v1",
+  "changes": {
+    "run_matrix_additions": {
+      "medium_adaptive_curc_chunk_v1": {
+        "block_count": 12,
+        "d_model": 256,
+        "gradient_horizon": 3,
+        "memory_architecture": "paper_residual_mlp_v2",
+        "memory_depth": 2,
+        "memory_mode": "adaptive",
+        "memory_recurrence_policy": "paper_exact",
+        "num_heads": 8,
+        "phase": "operational_continuation",
+        "scheduler_burst_segments": 96,
+        "scheduler_policy": "stateful_rotation",
+        "seed": 20260751
+      },
+      "medium_adaptive_gcp_failover_chunk_v1": {
+        "block_count": 12,
+        "d_model": 256,
+        "execution_role": "gcp_failover",
+        "gradient_horizon": 3,
+        "memory_architecture": "paper_residual_mlp_v2",
+        "memory_depth": 2,
+        "memory_mode": "adaptive",
+        "memory_recurrence_policy": "paper_exact",
+        "num_heads": 8,
+        "phase": "operational_continuation",
+        "scheduler_burst_segments": 96,
+        "scheduler_policy": "stateful_rotation",
+        "seed": 20260751,
+        "trajectory_id": "adaptive-seed-20260751"
+      },
+      "medium_adaptive_seed2_e25_v1": {
+        "block_count": 12,
+        "d_model": 256,
+        "execution_role": "gcp_replica",
+        "gradient_horizon": 3,
+        "memory_architecture": "paper_residual_mlp_v2",
+        "memory_depth": 2,
+        "memory_mode": "adaptive",
+        "memory_recurrence_policy": "paper_exact",
+        "num_heads": 8,
+        "phase": "replication",
+        "require_panel_completion": true,
+        "scheduler_burst_segments": 96,
+        "scheduler_policy": "stateful_rotation",
+        "seed": 20260752,
+        "trajectory_id": "adaptive-seed-20260752"
+      },
+      "medium_adaptive_seed2_e100_increment_v1": {
+        "block_count": 12,
+        "d_model": 256,
+        "execution_role": "gcp_replica",
+        "gradient_horizon": 3,
+        "memory_architecture": "paper_residual_mlp_v2",
+        "memory_depth": 2,
+        "memory_mode": "adaptive",
+        "memory_recurrence_policy": "paper_exact",
+        "num_heads": 8,
+        "phase": "replication",
+        "require_panel_completion": true,
+        "scheduler_burst_segments": 96,
+        "scheduler_policy": "stateful_rotation",
+        "seed": 20260752,
+        "trajectory_id": "adaptive-seed-20260752",
+        "warm_start_from": "medium_adaptive_seed2_e25_v1"
+      },
+      "medium_adaptive_e50_milestone_v1": {
+        "block_count": 12,
+        "budget_bases": 50000000,
+        "d_model": 256,
+        "gradient_horizon": 3,
+        "memory_architecture": "paper_residual_mlp_v2",
+        "memory_depth": 2,
+        "memory_mode": "adaptive",
+        "memory_recurrence_policy": "paper_exact",
+        "num_heads": 8,
+        "phase": "exploratory_milestone",
+        "require_panel_completion": false,
+        "scheduler_burst_segments": 96,
+        "scheduler_policy": "stateful_rotation",
+        "seed": 20260751
+      },
+      "medium_adaptive_e50_analysis_v1": {
+        "phase": "analysis"
+      },
+      "medium_adaptive_e75_milestone_v1": {
+        "block_count": 12,
+        "budget_bases": 75000000,
+        "d_model": 256,
+        "gradient_horizon": 3,
+        "memory_architecture": "paper_residual_mlp_v2",
+        "memory_depth": 2,
+        "memory_mode": "adaptive",
+        "memory_recurrence_policy": "paper_exact",
+        "num_heads": 8,
+        "phase": "exploratory_milestone",
+        "require_panel_completion": false,
+        "scheduler_burst_segments": 96,
+        "scheduler_policy": "stateful_rotation",
+        "seed": 20260751
+      },
+      "medium_adaptive_e75_analysis_v1": {
+        "phase": "analysis"
+      },
+      "medium_no_memory_e25_v1": {
+        "block_count": 12,
+        "d_model": 256,
+        "gradient_horizon": 3,
+        "memory_architecture": "paper_residual_mlp_v2",
+        "memory_depth": 2,
+        "memory_mode": "no_memory",
+        "memory_recurrence_policy": "paper_exact",
+        "num_heads": 8,
+        "phase": "exploratory_control",
+        "require_panel_completion": true,
+        "scheduler_burst_segments": 96,
+        "scheduler_policy": "stateful_rotation",
+        "seed": 20260751
+      },
+      "medium_no_memory_e25_analysis_v1": {
+        "phase": "analysis"
+      },
+      "medium_no_memory_e25_pilot_v1": {
+        "block_count": 12,
+        "d_model": 256,
+        "gradient_horizon": 3,
+        "memory_architecture": "paper_residual_mlp_v2",
+        "memory_depth": 2,
+        "memory_mode": "no_memory",
+        "memory_recurrence_policy": "paper_exact",
+        "num_heads": 8,
+        "phase": "engineering_pilot",
+        "scheduler_burst_segments": 96,
+        "scheduler_policy": "stateful_rotation",
+        "seed": 20260751
+      }
+    }
+  },
+  "classification": "exploratory",
+  "created_at": "2026-08-09T00:00:00+00:00",
+  "expected_impact": "Adds observational E50/E75 snapshots, one matched no-memory E25 control, an independently seeded adaptive replication trajectory, and a provenance-preserving GCP failover role. E50/E75 do not alter training or authorize model-selection threshold changes. The first-seed E25 control remains exploratory; replication and matched controls are required before any adaptive-memory superiority claim.",
+  "format_version": 1,
+  "preceding_protocol_hash": "5775f349d2aa2ccb5c2f10987302fcbdefb9472ad2c26fb2cbce90bc8363b16c",
+  "rationale": "Predeclare a resource-aware vertical slice before reviewing the completed E25 gate: finish one adaptive trailblazer through E100, retain immutable learning-curve milestones, spend the bounded Google Cloud budget first on the clearest matched memory control, and use a research-credit award either to protect the primary trajectory from CURC failure or to obtain an independent second seed."
+}

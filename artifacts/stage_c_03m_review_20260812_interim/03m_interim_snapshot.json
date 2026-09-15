@@ -1,0 +1,71 @@
+{
+  "classification": "interim_03m_scientific_review",
+  "e100_decision": {
+    "authorized": false,
+    "decision": "HOLD",
+    "reason": "03m is incomplete and the frozen full c16 evaluation and generation prerequisites are absent."
+  },
+  "evidence_boundary_utc": "2026-08-12T14:46:03Z",
+  "execution": {
+    "current_stage": "heldout_evaluation",
+    "device": "NVIDIA A100-SXM4-40GB",
+    "evaluator_commit": "ae72fae21ff9a0b50e4fe1d9d642c38c643b4923",
+    "later_stages_started": false,
+    "notebook_complete": false,
+    "resume_checkpoint_present": true
+  },
+  "identity": {
+    "checkpoint_sha256": "07fb2069b1f29a76898a90d8dfb899c5ca46cb90608fac45bc0ddff9876dbd1a",
+    "dataset_fingerprint": "2fbdb870606e6fb1ce0f6750524726d041474be5081da2cb2316948bc12a2ee9",
+    "panel_contract_sha256": "9ab65d47fa2db7dec2525e42f3fac2b05351e498b7dff454fec2b3dea9ce7a64",
+    "plan_sha256": "66cdf849f2e7f151404600699ccefff903311eff0c0fffbad89592abebbd6038"
+  },
+  "live_progress": {
+    "completed_bases": 3247372,
+    "completed_segments": 18816,
+    "completed_streams": 7,
+    "elapsed_hours": 11.018257509452778,
+    "eta_hours": 120.86588132339983,
+    "planned_segments": 225220,
+    "progress_fraction": 0.08354497824349524,
+    "segments_per_second": 0.4743641780184033,
+    "started_streams": 8,
+    "state": "running",
+    "updated_at": "2026-08-12T14:46:02.982868+00:00"
+  },
+  "durable_partial_statistics": {
+    "accession": "GCF_000351405.1",
+    "accession_segments_completed": 18432,
+    "accession_segments_planned": 32901,
+    "all_active_state_tensors_finite": true,
+    "bits_per_base": 1.9943856822321717,
+    "completed_accessions": 0,
+    "completed_bases": 3173644,
+    "completed_segments": 18432,
+    "completed_streams": 7,
+    "diagnostic_means": {
+      "memory_update_norm": 10698.812436293296,
+      "retrieval_norm": 17185.05875865494,
+      "state_drift_norm": 75014.79197422539,
+      "surprise_norm": 641.4387578833444
+    },
+    "gradient_intervention_fraction": 0.0,
+    "maximum_conditioned_memory_gradient_rms": 1123338.625,
+    "maximum_raw_memory_gradient_rms": 1123338.625,
+    "memory_gradient_scale_min": 1.0,
+    "saved_at": "2026-08-12T14:32:33.037363+00:00",
+    "top_1_accuracy": 0.002467151279612174,
+    "top_2_accuracy": 0.00451887158774326
+  },
+  "missing_outputs": [
+    "scale_analysis_v1/evaluation/evaluation.json",
+    "scale_analysis_v1/memory_behavior.json",
+    "scale_analysis_v1/memory_trace",
+    "scale_analysis_v1/generation_t0p6/generation_evaluation.json",
+    "scale_analysis_v1/gate/scale_gate.json",
+    "c17_v3_c16_broad_baseline_resumable/full_evaluation/evaluation.json",
+    "c17_v3_c16_broad_baseline_resumable/generation_t0p6/generation_evaluation.json"
+  ],
+  "scientific_interpretation": "The partial run demonstrates finite long-sequence execution and exposes severe held-out memory-conditioning tails, but covers only one incomplete accession and cannot support a prediction, memory, generation, or scale claim."
+}
+

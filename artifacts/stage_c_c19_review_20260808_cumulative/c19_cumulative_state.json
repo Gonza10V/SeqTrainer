@@ -1,0 +1,119 @@
+{
+  "classification": "cumulative_training_and_checkpoint_review",
+  "format_version": 1,
+  "report_date_local": "2026-08-08",
+  "training_snapshot": {
+    "all_numeric_values_finite": true,
+    "estimated_remaining_gpu_hours": 24.537499108880265,
+    "optimizer_step": 36979,
+    "panel_target_bases": 26062903,
+    "processed_bases": 21299904,
+    "progress_fraction": 0.817249866601583,
+    "recorded_gpu_hours": 107.11341099605302,
+    "remaining_bases": 4762999,
+    "snapshot_updated_at_utc": "2026-08-09T05:01:56.769244+00:00"
+  },
+  "loss": {
+    "best_500_step_ending_bases": 21201984,
+    "best_500_step_ending_step": 36809,
+    "best_500_step_mean_bpb": 1.9212490479946136,
+    "first_500_step_mean_bpb": 2.0193955709934235,
+    "latest_500_step_mean_bpb": 1.9237998335361481,
+    "latest_minus_august_6_bpb": -0.02669943118095386,
+    "latest_minus_first_500_bpb": -0.09559573745727534
+  },
+  "latest_500_step_means": {
+    "alpha_mean": 0.002159324353715976,
+    "eta_mean": 0.8790664901733397,
+    "gradient_norm": 1.963054309606552,
+    "memory_update_norm": 24.31984073972702,
+    "past_momentary_cosine_mean": 0.1393887849557795,
+    "raw_memory_gradient_rms_max": 0.06865432654693718,
+    "retrieval_norm": 406.5836627807617,
+    "state_drift_norm": 283.05736305236815,
+    "surprise_norm": 0.9912066672444344,
+    "theta_mean": 0.002037281978021637,
+    "token_accuracy": 0.0025000000689178654,
+    "top_2_accuracy": 0.004812500128522507,
+    "written_state_gradient_norm": 70.63299822235108
+  },
+  "memory_safety": {
+    "configured_memory_gradient_limit": null,
+    "configured_memory_gradient_ratio_limit": null,
+    "configured_surprise_clip": null,
+    "legacy_surprise_intervention_fraction_max": 0.0,
+    "memory_gradient_intervention_fraction_max": 0.0,
+    "memory_gradient_scale_min": 1.0,
+    "recent_2000_raw_memory_gradient_rms_p99": 0.16148185342550272
+  },
+  "finite_excursions": {
+    "gradient_norm_gt_10_steps": 30,
+    "gradient_norm_gt_100_steps": 9,
+    "maximum_outer_gradient_norm_before_clipping": {
+      "optimizer_step": 29613,
+      "processed_bases": 17057088,
+      "value": 15006.9091796875
+    },
+    "maximum_memory_event": {
+      "memory_update_norm": 2010.7246856689453,
+      "optimizer_step": 29207,
+      "processed_bases": 16823232,
+      "raw_memory_gradient_rms_max": 45.58121109008789,
+      "surprise_norm": 119.23333537578584
+    },
+    "interpretation": "Rare, severe, finite transients occurred and then recovered. Zero memory-intervention fractions do not imply that a configured memory limiter passed, because the checkpoint records those limiter thresholds as null."
+  },
+  "milestones": [
+    {
+      "date": "2026-08-05",
+      "evidence": "cumulative training snapshot",
+      "optimizer_step": 19828,
+      "processed_bases": 11420928,
+      "progress_fraction": 0.4381841884612777,
+      "latest_500_step_mean_bpb": 1.9652184002399444
+    },
+    {
+      "date": "2026-08-06",
+      "evidence": "cumulative training snapshot",
+      "optimizer_step": 25550,
+      "processed_bases": 14716800,
+      "progress_fraction": 0.5646425496039332,
+      "latest_500_step_mean_bpb": 1.950499264717102
+    },
+    {
+      "date": "2026-08-07",
+      "evidence": "exploratory generation smoke",
+      "optimizer_step": 26250,
+      "processed_bases": 15120000,
+      "result": "SMOKE_FINITE_WITH_CALIBRATION_WARNING"
+    },
+    {
+      "date": "2026-08-08",
+      "evidence": "immutable staged checkpoint",
+      "optimizer_step": 32000,
+      "processed_bases": 18432000,
+      "progress_fraction": 0.70721208608,
+      "checkpoint_sha256": "1446212e18933a35a44e4393bae10ae27224c0f471cf9c29a19d12478a4cbf4f"
+    },
+    {
+      "date": "2026-08-08 MDT / 2026-08-09 UTC",
+      "evidence": "live cumulative training snapshot",
+      "optimizer_step": 36979,
+      "processed_bases": 21299904,
+      "progress_fraction": 0.817249866601583,
+      "latest_500_step_mean_bpb": 1.9237998335361481
+    }
+  ],
+  "evaluation_state": {
+    "generation": "Operational smoke passed at step 26,250, but calibration warnings remain and the protocol is not a matched frozen gate.",
+    "context_anomaly_and_needle": "No scientific result yet. The first step-32,000 smoke attempt stopped during deterministic case selection; the selector defect has been corrected and the evaluation must be rerun.",
+    "held_out_prediction": "No new frozen accession-balanced held-out result is present in this evidence bundle.",
+    "scale_gate": "Not decided; E100 is not authorized by current evidence."
+  },
+  "limits": [
+    "Training BPB is not held-out BPB and can improve because of learned structure, changing stream composition, or both.",
+    "Memory norms show activity and stability, not causal utility.",
+    "The generation smoke used an unmatched exploratory protocol and cannot establish superiority to C16.",
+    "The failed 03q attempt produced no anomaly or needle metrics and must not be interpreted as a model failure."
+  ]
+}

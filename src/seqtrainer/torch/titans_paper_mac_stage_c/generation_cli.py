@@ -6,6 +6,7 @@ import argparse
 from collections import Counter, defaultdict
 import csv
 import hashlib
+import inspect
 import json
 import math
 from pathlib import Path
@@ -89,10 +90,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def _load_checkpoint(path: Path, device: torch.device) -> Mapping[str, object]:
-    try:
-        payload = torch.load(path, map_location=device, weights_only=False)
-    except TypeError:
-        payload = torch.load(path, map_location=device)
+    load_kwargs: dict[str, object] = {"map_location": device}
+    if "weights_only" in inspect.signature(torch.load).parameters:
+        load_kwargs["weights_only"] = False
+    payload = torch.load(path, **load_kwargs)
     if not isinstance(payload, Mapping):
         raise ValueError("checkpoint payload is invalid")
     return payload

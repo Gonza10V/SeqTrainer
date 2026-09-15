@@ -1,0 +1,111 @@
+{
+  "classification": "final_e25_training_review",
+  "format_version": 1,
+  "report_date_local": "2026-08-11",
+  "training_completion": {
+    "completed": true,
+    "completed_at_utc": "2026-08-11T12:49:03.507682+00:00",
+    "optimizer_steps": 45252,
+    "processed_bases": 26062903,
+    "progress_fraction": 1.0,
+    "observed_corpus_passes": 1.0,
+    "scheduler_exhausted": true,
+    "stop_reason": "panel_exhausted",
+    "recorded_step_hours": 131.2699329105433,
+    "mean_bases_per_second": 55.15120726626274
+  },
+  "identity": {
+    "run_id": "medium_adaptive_e25_v1",
+    "run_name": "c19_v3_medium_adaptive_e25",
+    "training_code_commit": "ae72fae21ff9a0b50e4fe1d9d642c38c643b4923",
+    "checkpoint_sha256": "07fb2069b1f29a76898a90d8dfb899c5ca46cb90608fac45bc0ddff9876dbd1a",
+    "dataset_fingerprint": "2fbdb870606e6fb1ce0f6750524726d041474be5081da2cb2316948bc12a2ee9",
+    "composite_training_fingerprint": "5300fe08b1b6bfe97b369e2be1f75ac5201c98351fd575810d04337a1b68b69d",
+    "train_panel_fingerprint": "2e1581493f335443412610103259b53240765cc3e6b0f26efaf7efd3dc13ed04",
+    "validation_panel_fingerprint": "9ab65d47fa2db7dec2525e42f3fac2b05351e498b7dff454fec2b3dea9ce7a64"
+  },
+  "model": {
+    "total_parameters": 24787200,
+    "trainable_parameters": 24787200,
+    "blocks": 12,
+    "d_model": 256,
+    "heads": 8,
+    "memory_architecture": "paper_residual_mlp_v2",
+    "memory_depth": 2,
+    "memory_recurrence_policy": "paper_exact",
+    "functional_state_bytes_per_stream": 50577408,
+    "activation_dtype": "bfloat16",
+    "device": "NVIDIA A100-SXM4-40GB"
+  },
+  "learning": {
+    "first_500_step_mean_bpb": 2.0193955709934235,
+    "best_500_step_mean_bpb": 1.9210295419692995,
+    "best_500_step_ending_step": 39255,
+    "best_500_step_ending_bases": 22610880,
+    "final_500_step_mean_bpb": 1.9514645512104034,
+    "final_500_step_median_bpb": 1.9556338787078857,
+    "final_2000_step_mean_bpb": 1.9384332693815232,
+    "final_500_improvement_from_first_fraction": 0.03363928333744043,
+    "best_500_improvement_from_first_fraction": 0.048710629277914905,
+    "interpretation": "Training learned non-uniform sequence statistics, peaked before the end, and finished in a late plateau/rebound rather than at its best rolling loss."
+  },
+  "terminal_validation_diagnostic": {
+    "bits_per_base": 2.4274334731440708,
+    "accessions": 1,
+    "accession": "GCF_000351405.1",
+    "segments": 512,
+    "valid_bases": 46924,
+    "gap_over_final_500_training_bpb": 0.47596892193366735,
+    "eligible_for_frozen_e25_gate": false,
+    "interpretation": "This capped one-accession diagnostic is a generalization warning, not the preregistered broad held-out comparison."
+  },
+  "numerical_stability": {
+    "all_history_numeric_values_finite": true,
+    "outer_gradient_clip_norm": 0.5,
+    "memory_gradient_limit": null,
+    "memory_gradient_ratio_limit": null,
+    "surprise_clip_limit": null,
+    "outer_gradient_events_gt_10": 110,
+    "outer_gradient_events_gt_100": 31,
+    "outer_gradient_events_gt_1000": 11,
+    "outer_gradient_events_gt_1000000": 2,
+    "maximum_outer_gradient": {
+      "step": 40035,
+      "processed_bases": 23060087,
+      "value": 38741872.0
+    },
+    "maximum_memory_event": {
+      "step": 29207,
+      "processed_bases": 16823232,
+      "raw_memory_gradient_rms": 45.58121109008789,
+      "memory_update_norm": 2010.7246856689453,
+      "surprise_norm": 119.23333537578584
+    },
+    "interpretation": "The trajectory remained finite and recovered after extreme transient events, but the heavy-tailed conditioning risk is unresolved."
+  },
+  "memory_activity": {
+    "early_500_alpha_mean": 0.0010002541033705843,
+    "final_500_alpha_mean": 0.002505318026679211,
+    "early_500_eta_mean": 0.8999922567605972,
+    "final_500_eta_mean": 0.8730885166327159,
+    "early_500_theta_mean": 0.0010002548318976696,
+    "final_500_theta_mean": 0.002358788459096055,
+    "final_500_approximate_forgetting_half_life_writes": 276.3236176477329,
+    "interpretation": "The adaptive memory was active and became more plastic; telemetry alone does not establish causal predictive benefit."
+  },
+  "post_training_checks": {
+    "architecture_export": "passed",
+    "checkpoint_identity": "recorded",
+    "resume_verification": "failed_at_exhausted_panel_boundary",
+    "broad_heldout_prediction_gate": "not_run",
+    "controlled_memory_gate": "not_run_on_final_checkpoint",
+    "matched_generation_gate": "not_run_on_final_checkpoint",
+    "context_anomaly_and_needle": "not_completed"
+  },
+  "e100_decision": {
+    "decision": "HOLD",
+    "authorized": false,
+    "reason": "Training completion is necessary but the frozen E25 prediction, memory, generation, resume, and context gates have not passed.",
+    "next_action": "Resolve terminal resume verification and run notebook 03m against the immutable final checkpoint; proceed only if scale_gate.json records proceed=true."
+  }
+}

@@ -28,6 +28,7 @@ from seqtrainer.torch.titans_paper_mac_stage_c.generation_cli import (  # noqa: 
     _find_orfs,
     _jensen_shannon,
     _kmer_counts,
+    _load_checkpoint as load_generation_checkpoint,
     _sequence_metrics,
     generate_continuation,
     parse_args as parse_generation_args,
@@ -189,6 +190,23 @@ def test_generation_cli_accepts_an_unrestricted_top_k(tmp_path) -> None:
     )
 
     assert args.top_k is None
+
+
+def test_generation_checkpoint_loader_accepts_owned_full_state_metadata(tmp_path) -> None:
+    checkpoint = tmp_path / "latest.pt"
+    torch.save(
+        {
+            "format_version": 2,
+            "model_state": {},
+            "rng": {"numpy": np.random.get_state()},
+        },
+        checkpoint,
+    )
+
+    payload = load_generation_checkpoint(checkpoint, torch.device("cpu"))
+
+    assert payload["format_version"] == 2
+    assert payload["rng"]["numpy"][0] == "MT19937"
 
 
 def test_generation_preserves_the_inner_surprise_gradient() -> None:
@@ -552,6 +570,38 @@ def test_all_colab_notebooks_are_thin_pinned_logged_handoffs() -> None:
         assert "seqtrainer-titans-stage-c-colab-run" in source
         assert "DRIVE_ROOT" in source
         assert len(payload["cells"]) <= 5
+
+
+def test_c19_generation_notebook_is_an_exact_single_arm_c16_comparison() -> None:
+    root = Path(__file__).parents[1]
+    notebook = json.loads(
+        (
+            root
+            / "notebooks/titans_stage_c/03p_stage_c_c19_checkpoint_generation_status.ipynb"
+        ).read_text(encoding="utf-8")
+    )
+    source = "\n".join("".join(cell.get("source", [])) for cell in notebook["cells"])
+
+    assert "07fb2069b1f29a76898a90d8dfb899c5ca46cb90608fac45bc0ddff9876dbd1a" in source
+    assert "c16_deep_adaptive_5m_paper_exact/generation_diagnostics_v1" in source
+    assert "PROMPTS=4" in source
+    assert "PROMPT_TOKENS=32" in source
+    assert "NEW_TOKENS=1024" in source
+    assert "TEMPERATURES='0.8,1.0,1.2'" in source
+    assert "TOP_K=128" in source
+    assert "TOP_P=0.95" in source
+    assert "SEED=20260781" in source
+    assert "MEMORY_MODE='adaptive'" in source
+    assert "len(rows)==12" in source
+    assert "prompt_identity(baseline)!=prompt_identity(candidate)" in source
+    assert "REFUSING COMPARISON" in source
+    assert "c16_c19_kmer_jsd_k1_to_k6.png" in source
+    assert "c16_c19_prodigal_length_distributions.png" in source
+    assert "c16_c19_exact_comparison.json" in source
+    assert "c16_c19_comparison_metrics.csv" in source
+    assert "temperature-0.6 E25 gate arm remains in notebook 03m" in source
+    assert "FULL_TEMPERATURES" not in source
+    assert "frozen_e25_generation_component" not in source
 
 
 def test_stream_dataset_notebook_preserves_the_colab_numeric_abi_stack() -> None:

@@ -1,0 +1,40 @@
+{
+  "classification": "mutable_interim_evidence_manifest",
+  "created_at_utc": "2026-08-12T14:46:03Z",
+  "format_version": 1,
+  "note": "03m was actively writing live and resume artifacts. Hashes identify the files observed at the review boundary and will change as evaluation progresses.",
+  "sources": [
+    {
+      "path": "GoogleDrive/SeqTrainerStageC/runs/c19_v3_medium_adaptive_e25/scale_analysis_v1/colab_run_manifest.json",
+      "sha256": "00716ca9570b67be1223a8820616658cf7313530de644a7042296d3ce65f12e3"
+    },
+    {
+      "path": "GoogleDrive/SeqTrainerStageC/runs/c19_v3_medium_adaptive_e25/scale_analysis_v1/evaluation/adaptive_LIVE_STATUS.json",
+      "sha256": "2e6dff090efe96355b4d9256c21399f4033458e8284f5a7a7f0d238f60ccd425"
+    },
+    {
+      "path": "GoogleDrive/SeqTrainerStageC/runs/c19_v3_medium_adaptive_e25/scale_analysis_v1/evaluation/resume/adaptive.evaluation.pt",
+      "sha256": "4a116a8a779885612db3b4a178d50b11f4daa789245455b935fd74b5bcdd86f7"
+    },
+    {
+      "path": "GoogleDrive/SeqTrainerStageC/runs/c17_v3_c16_broad_baseline_resumable/pilot_evaluation/evaluation.json",
+      "sha256": "dbf38edfbf27af890e47d04c0c003ee846c8a654f165afff3d8c516dbdea1cdc"
+    },
+    {
+      "path": "artifacts/stage_c_c19_review_20260811_final/c19_final_training_state.json",
+      "role": "completed C19 training comparison"
+    },
+    {
+      "path": "notebooks/titans_stage_c/03m_stage_c_v3_medium_e25_analysis_and_gate.ipynb",
+      "role": "analysis workflow definition"
+    },
+    {
+      "path": "src/seqtrainer/torch/titans_paper_mac_stage_c/scale_gate_cli.py",
+      "role": "frozen gate implementation"
+    },
+    {
+      "path": "studies/stage_c_ecoli_medium_deep_memory_v3/protocol.json",
+      "role": "frozen scientific thresholds and claim limits"
+    }
+  ]
+}

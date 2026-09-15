@@ -1,0 +1,31 @@
+{
+  "drive_folder_id": "1fQcTBXERBQCbhYD-i3YHK8_IlalM3Ec7",
+  "drive_folder_url": "https://drive.google.com/drive/u/0/folders/1fQcTBXERBQCbhYD-i3YHK8_IlalM3Ec7",
+  "snapshot_status_updated_at": "2026-08-06T23:43:26.342626+00:00",
+  "sources": {
+    "FAILED.txt": {
+      "drive_file_id": "1EC3MWkIKRf0AUaf0GF6Yc-VfayP2d5Uo",
+      "sha256": "4ab7f253f95ff398c1943f7f455f3cfa0b39e28ade64720b3eec55c7852b2362"
+    },
+    "LIVE_STATUS.json": {
+      "drive_file_id": "1q4bS_30MkvzhFrQxpS2KcaO0TK2KUuhU",
+      "sha256": "ae2fefc375d223427dd5d81cd9861df9cd377a4673d6775c618982f11ec2dc6b"
+    },
+    "RUN_START.json": {
+      "drive_file_id": "18EWtwAPhA2_m48pUbAxqlRBmiSTxKYGK",
+      "sha256": "0e4cfaf168868b3de95a83c272aa1e6b3644271f2408d641baba8a9071c61532"
+    },
+    "colab_run_manifest.json": {
+      "drive_file_id": "1tcyvwKXka6wZmAEKjQvzEspnHz7wcEdF",
+      "sha256": "c385f948408ce00335b6de5b281b997f595a98ba9161ea60582989cf6eeb1e89"
+    },
+    "training_history.csv": {
+      "drive_file_id": "11ovCpdnovyROCOgOOGvR0V-6IhDbqC4d",
+      "sha256": "d4a7faf85a3e471e1642bd8fc995a8d700e509e8f7721eac8503eb1b4c84c9b4"
+    },
+    "training_history.json": {
+      "drive_file_id": "1e7K5tQr1wD4muMcHomp5doYySY6xc3xL",
+      "sha256": "3de5c91c54903b4ba1d577ee58c9ded2ce83ec8069275641243d7667d9e1edb0"
+    }
+  }
+}

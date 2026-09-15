@@ -1,0 +1,47 @@
+{
+  "format_version": 1,
+  "report_date_local": "2026-08-11",
+  "snapshot_updated_at_utc": "2026-08-11T06:09:25.049027+00:00",
+  "training_drive_folder_id": "1fQcTBXERBQCbhYD-i3YHK8_IlalM3Ec7",
+  "evaluation_drive_folder_id": "16gwkjCJT53212j_k0XRxcR0KTEu8Ta5k",
+  "sources": {
+    "training_history.csv": {
+      "drive_file_id": "11ovCpdnovyROCOgOOGvR0V-6IhDbqC4d",
+      "sha256": "35e36d3603e604579d55347ee539ec51aa2ec6372ca2a82d7a18d24be4737191"
+    },
+    "LIVE_STATUS.json": {
+      "drive_file_id": "1q4bS_30MkvzhFrQxpS2KcaO0TK2KUuhU",
+      "sha256": "7c16238548cb8376ab04d3124efc3afdf37d2fca50c313287a58bf0a500a527d"
+    },
+    "RUN_START.json": {
+      "drive_file_id": "18EWtwAPhA2_m48pUbAxqlRBmiSTxKYGK",
+      "sha256": "0e4cfaf168868b3de95a83c272aa1e6b3644271f2408d641baba8a9071c61532"
+    },
+    "colab_run_manifest.json": {
+      "drive_file_id": "1tcyvwKXka6wZmAEKjQvzEspnHz7wcEdF",
+      "sha256": "f3de2d2c9f0fc09dab002019a1e40dcb6c2048fe76208177b54b43b70c3021f8"
+    },
+    "logs/train_e25.log": {
+      "drive_file_id": "1gL6TFn3mGvXFIFzeRpyjKpK3H77LFXnw",
+      "sha256": "4dcb508800e7363dce3f325ae7a750df99d2c06d55451a89d067fb59aceb6cce"
+    },
+    "FAILED.txt": {
+      "drive_file_id": "1EC3MWkIKRf0AUaf0GF6Yc-VfayP2d5Uo",
+      "sha256": "e09edd7c45d3a86ac9c9a02fed646a2ebd872f1395bae12d44d0a6d00cdc2444"
+    },
+    "c19_step_26250_generation_evaluation.json": {
+      "path": "../stage_c_c19_generation_review_20260807/c19_smoke_generation_evaluation.json",
+      "sha256": "fa0275da943135a985146c7ecd5316724fbfbb527a87ee395bbce5ca1af5752d"
+    },
+    "step_32000_checkpoint_manifest": {
+      "path": "../stage_c_c19_review_20260808_cumulative/SOURCE_MANIFEST.json",
+      "checkpoint_sha256": "1446212e18933a35a44e4393bae10ae27224c0f471cf9c29a19d12478a4cbf4f"
+    }
+  },
+  "notes": [
+    "The live timestamp is 00:09 MDT on 11 August 2026.",
+    "LIVE_STATUS.json is one optimizer step and 576 bases ahead of the synchronized CSV; the report states both boundaries explicitly.",
+    "The current latest.pt was not downloaded. This report analyzes cumulative telemetry and previously verified checkpoint evidence.",
+    "FAILED.txt records an earlier wrapper return code. A later invocation is running and its resume artifacts remain authoritative."
+  ]
+}

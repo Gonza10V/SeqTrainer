@@ -1,0 +1,66 @@
+{
+  "format_version": 1,
+  "report_date_local": "2026-08-11",
+  "retrieved_at_local": "2026-08-11T10:07:07-06:00",
+  "training_drive_folder_id": "1fQcTBXERBQCbhYD-i3YHK8_IlalM3Ec7",
+  "sources": {
+    "training_history.csv": {
+      "drive_file_id": "11ovCpdnovyROCOgOOGvR0V-6IhDbqC4d",
+      "sha256": "cdaf80e1a64b42e3ec1c6bf943c4234d39582aeffdf478dc9938d4d1a85abd72"
+    },
+    "training_history.json": {
+      "drive_file_id": "1e7K5tQr1wD4muMcHomp5doYySY6xc3xL",
+      "sha256": "a4b3c3ebcb9eeb793da75cabc18c4c07aa5aae9c50bc1b20e871ab294a5b0d78"
+    },
+    "LIVE_STATUS.json": {
+      "drive_file_id": "1q4bS_30MkvzhFrQxpS2KcaO0TK2KUuhU",
+      "sha256": "8d6e3225eb54234e5541f549b1ee4836b936b19892f9dda137d170cabd9b8a24"
+    },
+    "run_manifest.json": {
+      "drive_file_id": "1weXxSs2SAwsbqxlKHUQGWYbDfmleUJS4",
+      "sha256": "5280e22cdd70dc933ba8dff722385a2d430bf1c1694d915cf560e1ca6bd01d68"
+    },
+    "validation.json": {
+      "drive_file_id": "1zCa4dvnRZd2nZdVxhD471-SaAG7xxayS",
+      "sha256": "4d244d0900f3485a7085940a659907cab3c28b285722728de3dcef12cab50ee5"
+    },
+    "MODEL_ARCHITECTURE.json": {
+      "drive_file_id": "1LCw71GbJOzZcfx-l3bm0cJA8pDvc_Orr",
+      "sha256": "149529cf4364e5dc7cd26092db265a3d3a55230dc5841b7160cc8ce6c9edb301"
+    },
+    "colab_run_manifest.json": {
+      "drive_file_id": "1tcyvwKXka6wZmAEKjQvzEspnHz7wcEdF",
+      "sha256": "7865fd14644bc7d9b883320420780ffb7718021b75970a8ab62856fa9ca9ffc1"
+    },
+    "logs/train_e25.log": {
+      "drive_file_id": "1gL6TFn3mGvXFIFzeRpyjKpK3H77LFXnw",
+      "sha256": "856cc947535a7994b67ffc0eee154bf4dfae10ab70fb54e561cc02b4f6ac60bb"
+    },
+    "logs/architecture_e25.log": {
+      "drive_file_id": "19GqVRP1LvDAR5a94UcnyPLz8_2qHk-yu",
+      "sha256": "773ff9047867e118778ee78ab86852d54904b7b3eaf13fe3e12d845f44ab15fc"
+    },
+    "logs/resume_verify_e25.log": {
+      "drive_file_id": "1Xx5ySfxKFUfG_g0_ES2j10zvsmnHQaCM",
+      "sha256": "89b61a41bb7c2f78d3272b943598167da7b6bcf5710ccb8bafb8b4799ab96c0e"
+    },
+    "FAILED.txt": {
+      "drive_file_id": "1aciOMKrg-T1oEW07njaQ49ebKKJqdmQC",
+      "sha256": "8e7c52d297f7651179dbaa4416bb99cd91d437d0a93f5b5cdcc9bd8eef7bfe50"
+    }
+  },
+  "checkpoint": {
+    "drive_file_id": "1uVJ9l_dsngzXtWP3JhyGUeBrCuoigD9y",
+    "sha256_from_architecture_export": "07fb2069b1f29a76898a90d8dfb899c5ca46cb90608fac45bc0ddff9876dbd1a",
+    "downloaded_for_this_review": false
+  },
+  "prior_evidence": {
+    "near_complete_review": "../stage_c_c19_review_20260811_cumulative",
+    "generation_review": "../stage_c_c19_generation_review_20260807"
+  },
+  "notes": [
+    "The final training command and architecture export passed.",
+    "The subsequent terminal resume-verification command failed; FAILED.txt describes that post-training failure.",
+    "The large checkpoint was not downloaded. Its identity is reported by the successful architecture command."
+  ]
+}

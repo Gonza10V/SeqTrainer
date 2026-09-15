@@ -1,0 +1,134 @@
+{
+  "classification": "descriptive_unmatched_protocol_comparison",
+  "format_version": 1,
+  "identity": {
+    "dataset_fingerprint": {
+      "c16": "2fbdb870606e6fb1ce0f6750524726d041474be5081da2cb2316948bc12a2ee9",
+      "c19": "2fbdb870606e6fb1ce0f6750524726d041474be5081da2cb2316948bc12a2ee9",
+      "matched": true
+    },
+    "species": {
+      "c16": "Escherichia coli",
+      "c19": "Escherichia coli",
+      "matched": true
+    },
+    "split": {
+      "c16": "val",
+      "c19": "val",
+      "matched": true
+    },
+    "taxonomy_manifest_sha256": {
+      "c16": "5b7c8b1136ac31972ee8d2ca615c798fdcec38a1d4c57f986892c88af3eb301a",
+      "c19": "5b7c8b1136ac31972ee8d2ca615c798fdcec38a1d4c57f986892c88af3eb301a",
+      "matched": true
+    }
+  },
+  "limits": [
+    "Prompt length, continuation length, seed, and temperature grids are not matched.",
+    "JSD and diversity estimates depend on sampled sequence length.",
+    "Only four prompt accessions were sampled in each run.",
+    "This comparison cannot determine the frozen E25 generation gate."
+  ],
+  "protocols": {
+    "new_tokens": {
+      "c16": 1024,
+      "c19": 256
+    },
+    "prompt_tokens": {
+      "c16": 32,
+      "c19": 128
+    },
+    "seed": {
+      "c16": 20260781,
+      "c19": 20260751
+    },
+    "temperatures": {
+      "c16": [
+        0.8,
+        1.0,
+        1.2
+      ],
+      "c19": [
+        0.6,
+        0.8,
+        1.0
+      ]
+    },
+    "top_k": {
+      "c16": 128,
+      "c19": 128
+    },
+    "top_p": {
+      "c16": 0.95,
+      "c19": 0.95
+    }
+  },
+  "shared_temperature_metrics": {
+    "c16": {
+      "temperature_0.8": {
+        "entropy_absolute_error": 0.004011218229211133,
+        "gc_absolute_error": 0.0626220703125,
+        "homopolymer_absolute_error": 5.25,
+        "overlapping_six_mer_diversity_ratio": 0.4707789363007097,
+        "six_mer_jsd": 0.3883614962517029
+      },
+      "temperature_1": {
+        "entropy_absolute_error": 0.008337895462247946,
+        "gc_absolute_error": 0.07307942708333331,
+        "homopolymer_absolute_error": 5.5,
+        "overlapping_six_mer_diversity_ratio": 0.4716551301147814,
+        "six_mer_jsd": 0.3823760344864018
+      }
+    },
+    "c19": {
+      "temperature_0.8": {
+        "entropy_absolute_error": 0.018572939019941836,
+        "gc_absolute_error": 0.08837890624999994,
+        "homopolymer_absolute_error": 0.25,
+        "overlapping_six_mer_diversity_ratio": 0.6505096733929685,
+        "six_mer_jsd": 0.44131411661158304
+      },
+      "temperature_1": {
+        "entropy_absolute_error": 0.009366580394495116,
+        "gc_absolute_error": 0.08138020833333331,
+        "homopolymer_absolute_error": 0.0,
+        "overlapping_six_mer_diversity_ratio": 0.6627834408154774,
+        "six_mer_jsd": 0.43223819728750146
+      }
+    }
+  },
+  "shared_temperature_prodigal_metrics": {
+    "c16": {
+      "temperature_0.8": {
+        "coding_density_absolute_error": 0.06783040364583326,
+        "genes_per_10kb_absolute_error": 5.696614583333333,
+        "median_gene_bases_absolute_error": 51.0,
+        "median_intergenic_bases_absolute_error": 126.5
+      },
+      "temperature_1": {
+        "coding_density_absolute_error": 0.165283203125,
+        "genes_per_10kb_absolute_error": 4.069010416666667,
+        "median_gene_bases_absolute_error": 108.0,
+        "median_intergenic_bases_absolute_error": 186.5
+      }
+    },
+    "c19": {
+      "temperature_0.8": {
+        "coding_density_absolute_error": 0.27718098958333337,
+        "genes_per_10kb_absolute_error": 4.8828125,
+        "median_gene_bases_absolute_error": 19.5,
+        "median_intergenic_bases_absolute_error": 25.5
+      },
+      "temperature_1": {
+        "coding_density_absolute_error": 0.28369140625,
+        "genes_per_10kb_absolute_error": 1.627604166666666,
+        "median_gene_bases_absolute_error": 514.5,
+        "median_intergenic_bases_absolute_error": 52.0
+      }
+    }
+  },
+  "source_sha256": {
+    "c16": "def87fd6a88e2ffee1a27342a836bda39f5ae0908953aa5f4adbf373e593a814",
+    "c19": "fa0275da943135a985146c7ecd5316724fbfbb527a87ee395bbce5ca1af5752d"
+  }
+}

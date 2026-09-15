@@ -1,0 +1,94 @@
+{
+  "classification": "cumulative_training_and_checkpoint_review",
+  "format_version": 1,
+  "report_date_local": "2026-08-11",
+  "training_snapshot": {
+    "all_numeric_values_finite": true,
+    "csv_optimizer_step": 43783,
+    "csv_processed_bases": 25217968,
+    "estimated_remaining_gpu_hours": 4.265043229457409,
+    "live_optimizer_step": 43784,
+    "live_processed_bases": 25218544,
+    "panel_target_bases": 26062903,
+    "progress_fraction": 0.9676030333228804,
+    "recorded_gpu_hours": 126.96812272433466,
+    "remaining_bases_from_live_status": 844359,
+    "snapshot_updated_at_utc": "2026-08-11T06:09:25.049027+00:00"
+  },
+  "change_since_2026_08_08": {
+    "added_optimizer_steps": 6804,
+    "added_processed_bases": 3918064,
+    "added_recorded_gpu_hours": 19.854711728281643,
+    "latest_500_mean_bpb_change": 0.0049285457134248
+  },
+  "loss": {
+    "best_500_step_ending_bases": 22610880,
+    "best_500_step_ending_step": 39255,
+    "best_500_step_mean_bpb": 1.9210295419692995,
+    "first_500_step_mean_bpb": 2.0193955709934235,
+    "latest_500_step_mean_bpb": 1.9287283792495729,
+    "latest_500_step_median_bpb": 1.931379497051239,
+    "latest_minus_first_500_bpb": -0.0906671917438506
+  },
+  "latest_500_step_means": {
+    "alpha_mean": 0.002434678057208608,
+    "eta_mean": 0.874006719271342,
+    "gradient_norm": 3.2080560209751128,
+    "memory_update_norm": 27.795239250421524,
+    "past_momentary_cosine_mean": 0.11473717686462134,
+    "raw_memory_gradient_rms_max": 0.06655141853168602,
+    "retrieval_norm": 404.26014782714844,
+    "state_drift_norm": 287.2376725616455,
+    "surprise_norm": 1.1609077469408513,
+    "theta_mean": 0.0023013375750742357,
+    "token_accuracy": 0.002312500061467285,
+    "top_2_accuracy": 0.00429166677221655,
+    "written_state_gradient_norm": 65.21046406555176
+  },
+  "memory_safety": {
+    "configured_memory_gradient_limit": null,
+    "configured_memory_gradient_ratio_limit": null,
+    "configured_surprise_clip": null,
+    "legacy_surprise_intervention_fraction_max": 0.0,
+    "memory_gradient_intervention_fraction_max": 0.0,
+    "memory_gradient_scale_min": 1.0,
+    "recent_2000_memory_update_p99": 49.14365860939025,
+    "recent_2000_raw_memory_gradient_rms_p99": 0.29921952307224264,
+    "recent_2000_surprise_p99": 1.845781808197498
+  },
+  "finite_excursions": {
+    "gradient_norm_gt_10_steps": 82,
+    "gradient_norm_gt_100_steps": 24,
+    "new_gradient_norm_gt_10_since_august_8": 52,
+    "new_gradient_norm_gt_100_since_august_8": 15,
+    "maximum_outer_gradient_norm_before_clipping": {
+      "optimizer_step": 40035,
+      "processed_bases": 23060087,
+      "value": 38741872.0,
+      "raw_memory_gradient_rms_max": 15.68142318725586,
+      "memory_update_norm": 308.34816551208496,
+      "surprise_norm": 23.696563005447388,
+      "next_step_gradient_norm": 2.226917
+    },
+    "maximum_memory_event": {
+      "memory_update_norm": 2010.7246856689453,
+      "optimizer_step": 29207,
+      "processed_bases": 16823232,
+      "raw_memory_gradient_rms_max": 45.58121109008789,
+      "surprise_norm": 119.23333537578584
+    },
+    "interpretation": "The trajectory remained finite and recovered immediately after the new extreme outer-gradient event. The event is nevertheless a major numerical-stability warning. Zero memory-intervention fractions are expected because the relevant limiter thresholds are null."
+  },
+  "evaluation_state": {
+    "context_anomaly_and_needle": "No completed scientific result is present in this evidence bundle.",
+    "generation": "The step-26,250 operational smoke passed but remains unmatched and poorly calibrated.",
+    "held_out_prediction": "No completed accession-balanced held-out gate is present.",
+    "scale_gate": "Not decided; E100 remains unauthorized."
+  },
+  "limits": [
+    "Training BPB is not held-out BPB and can change with ordered stream composition.",
+    "Memory activity does not demonstrate causal memory utility.",
+    "Finite recovery after a gradient spike does not make the spike scientifically benign.",
+    "The synchronized history trails live status by one step."
+  ]
+}

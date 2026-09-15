@@ -11,3 +11,5 @@ testvenv/
 seqtrainer-data
 dnabert-out
 dnabertvenv
+GOOGLE_CLOUD_CREDIT_ACTIVATION.json
+FAILOVER_AUTHORIZATION.json

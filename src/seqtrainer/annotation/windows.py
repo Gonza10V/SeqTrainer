@@ -50,7 +50,15 @@ def generate_sliding_windows(
     if seq_len == 0:
         return []
 
-    starts = range(0, seq_len, step_size) if circular else range(0, max(seq_len - window_size + 1, 0), step_size)
+    if circular:
+        starts = list(range(0, seq_len, step_size))
+    elif seq_len >= window_size:
+        starts = list(range(0, seq_len - window_size + 1, step_size))
+        final_start = seq_len - window_size
+        if final_start not in starts:
+            starts.append(final_start)
+    else:
+        starts = []
     windows: list[SequenceWindow] = []
     for start in starts:
         fragment, crosses_boundary = _slice_window(normalized, start, window_size, circular)
@@ -87,6 +95,5 @@ def _slice_window(sequence: str, start: int, window_size: int, circular: bool) -
         return sequence[start:end], False
     if not circular:
         return sequence[start:], False
-    overhang = end - len(sequence)
-    return sequence[start:] + sequence[:overhang], True
+    return "".join(sequence[(start + offset) % len(sequence)] for offset in range(window_size)), True
 

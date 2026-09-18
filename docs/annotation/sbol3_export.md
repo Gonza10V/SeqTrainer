@@ -44,7 +44,7 @@ The SBOL3 file is an optional companion to the annotated GenBank output. Run the
 annotation command with `--sbol-output`:
 
 ```powershell
-seqtrainer annotate promoters C:\Users\Sgoff\Downloads\pAN1717_cyan.gb --model-family dummy --threshold 0.80 --window-size 300 --step-size 25 --scan-both-strands --output outputs\annotations\pAN1717_cyan_annotated.gb --predictions-csv outputs\annotations\pAN1717_cyan_predictions.csv --manifest outputs\annotations\pAN1717_cyan_manifest.json --sbol-output outputs\annotations\pAN1717_cyan.nt --sbol2-output outputs\annotations\pAN1717_cyan_sbol2.rdf
+seqtrainer annotate promoters "$env:USERPROFILE\Downloads\my_plasmid.gb" --model-family dummy --threshold 0.80 --window-size 300 --step-size 25 --scan-both-strands --output outputs\annotations\my_plasmid\annotated.gb --predictions-csv outputs\annotations\my_plasmid\predictions.csv --manifest outputs\annotations\my_plasmid\manifest.json --sbol-output outputs\annotations\my_plasmid\annotated.nt --sbol2-output outputs\annotations\my_plasmid\annotated.rdf
 ```
 
 For a real model, replace `dummy` and provide the checkpoint and benchmark

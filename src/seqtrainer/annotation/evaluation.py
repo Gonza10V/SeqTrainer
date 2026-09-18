@@ -73,26 +73,13 @@ def evaluate_merged_features(
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     predicted = list(predictions)
     gold_list = list(gold)
-    candidate_pairs = sorted(
-        (
-            _iou(prediction, gold_item, sequence_length),
-            prediction_index,
-            gold_index,
-        )
-        for prediction_index, prediction in enumerate(predicted)
-        for gold_index, gold_item in enumerate(gold_list)
-        if _strand_matches(prediction.strand, gold_item.strand)
-    )
-    candidate_pairs.sort(key=lambda item: (-item[0], item[1], item[2]))
-    matched_predictions: set[int] = set()
-    matched_gold: set[int] = set()
-    assignments: dict[int, tuple[int, float]] = {}
-    for score, prediction_index, gold_index in candidate_pairs:
-        if prediction_index in matched_predictions or gold_index in matched_gold:
-            continue
-        matched_predictions.add(prediction_index)
-        matched_gold.add(gold_index)
-        assignments[gold_index] = (prediction_index, score)
+    primary_threshold = float(iou_thresholds[-1])
+    thresholds = tuple(dict.fromkeys(float(value) for value in iou_thresholds))
+    assignments_by_threshold = {
+        threshold: _maximum_cardinality_matches(predicted, gold_list, sequence_length, threshold)
+        for threshold in thresholds
+    }
+    assignments = assignments_by_threshold[primary_threshold]
     rows = []
     for gold_index, item in enumerate(gold_list):
         assignment = assignments.get(gold_index)
@@ -104,22 +91,69 @@ def evaluate_merged_features(
             "union_bp": _union(predicted[pred_index], item, sequence_length) if pred_index is not None else 0,
             "iou": score, "start_error_bp": _boundary_error(predicted[pred_index], item, sequence_length, "start") if pred_index is not None else None,
             "end_error_bp": _boundary_error(predicted[pred_index], item, sequence_length, "end") if pred_index is not None else None,
-            **{f"matched_at_{str(t).replace('.', '_')}": bool(score >= t) for t in iou_thresholds},
+            **{
+                f"matched_at_{str(threshold).replace('.', '_')}": gold_index in assignments_by_threshold[threshold]
+                for threshold in thresholds
+            },
         })
     frame = pd.DataFrame(rows)
-    at_half = int(frame["matched_at_0_5"].sum()) if len(frame) and "matched_at_0_5" in frame else 0
+    matched_count = len(assignments)
     scores = frame["iou"].to_numpy(dtype=float) if len(frame) else np.array([])
     boundary_values = [value for value in frame[["start_error_bp", "end_error_bp"]].to_numpy().ravel() if pd.notna(value)] if len(frame) else []
     metrics = {
         "gold_promoter_count": len(gold_list), "predicted_promoter_count": len(predicted),
-        "matched_promoter_count": at_half, "labelled_promoter_recall": float(at_half / len(gold_list)) if gold_list else None,
+        "matched_promoter_count": matched_count,
+        "labelled_promoter_recall": float(matched_count / len(gold_list)) if gold_list else None,
         "mean_best_iou": float(scores.mean()) if len(scores) else 0.0,
         "median_best_iou": float(np.median(scores)) if len(scores) else 0.0,
         "median_boundary_error": float(np.median(boundary_values)) if boundary_values else None,
         "predictions_per_kilobase": float(len(predicted) / sequence_length * 1000) if sequence_length else None,
-        "iou_thresholds": list(iou_thresholds),
+        "iou_threshold": primary_threshold,
+        "iou_thresholds": list(thresholds),
+        "matched_promoter_counts": {
+            str(threshold): len(assignments_by_threshold[threshold]) for threshold in thresholds
+        },
     }
     return frame, metrics
+
+
+def _maximum_cardinality_matches(
+    predictions: list[Any],
+    gold: list[GroundTruthPromoter],
+    sequence_length: int,
+    threshold: float,
+) -> dict[int, tuple[int, float]]:
+    candidates = {
+        gold_index: sorted(
+            (
+                (_iou(prediction, gold_item, sequence_length), prediction_index)
+                for prediction_index, prediction in enumerate(predictions)
+                if _strand_matches(prediction.strand, gold_item.strand)
+                and _iou(prediction, gold_item, sequence_length) >= threshold
+            ),
+            key=lambda item: (-item[0], item[1]),
+        )
+        for gold_index, gold_item in enumerate(gold)
+    }
+    matched_prediction: dict[int, int] = {}
+
+    def assign(gold_index: int, visited: set[int]) -> bool:
+        for _, prediction_index in candidates[gold_index]:
+            if prediction_index in visited:
+                continue
+            visited.add(prediction_index)
+            current_gold = matched_prediction.get(prediction_index)
+            if current_gold is None or assign(current_gold, visited):
+                matched_prediction[prediction_index] = gold_index
+                return True
+        return False
+
+    for gold_index in range(len(gold)):
+        assign(gold_index, set())
+    return {
+        gold_index: (prediction_index, _iou(predictions[prediction_index], gold[gold_index], sequence_length))
+        for prediction_index, gold_index in matched_prediction.items()
+    }
 
 
 def _strand_matches(first: str | int | None, second: str | int | None) -> bool:

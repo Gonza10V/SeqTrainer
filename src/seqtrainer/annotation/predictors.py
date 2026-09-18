@@ -81,8 +81,6 @@ class DNABERT2PromoterPredictor:
             ) from exc
 
         self._torch = torch
-        # Accept both plain UTF-8 and the BOM produced by Windows PowerShell
-        # when users copy a benchmark manifest from local or Drive storage.
         self._manifest = json.loads(self.benchmark_manifest.read_text(encoding="utf-8-sig"))
         self._model_name = str(_manifest_get(self._manifest, ("model", "name"), "zhihan1996/DNABERT-2-117M"))
         self._model_params = dict(_manifest_get(self._manifest, ("model", "params"), {}))
@@ -163,35 +161,6 @@ class DNABERT2PromoterPredictor:
         }
 
 
-class CnnV2PromoterPredictor:
-    """Dependency-gated CNN-v2 predictor interface."""
-
-    def __init__(self, checkpoint: str | Path | None = None, benchmark_manifest: str | Path | None = None):
-        if checkpoint is None:
-            raise ValueError("CNN-v2 annotation requires --checkpoint from a completed benchmark run.")
-        self.checkpoint = Path(checkpoint)
-        self.benchmark_manifest = Path(benchmark_manifest) if benchmark_manifest else None
-        try:
-            import torch  # noqa: F401
-        except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
-            raise ModuleNotFoundError(
-                "CNN-v2 annotation requires torch. Install with `pip install -e \".[annotation,torch]\"`."
-            ) from exc
-        if not self.checkpoint.exists():
-            raise FileNotFoundError(f"CNN-v2 checkpoint not found: {self.checkpoint}")
-        raise NotImplementedError(
-            "CNN-v2 checkpoint inference is wired as an interface but the checkpoint-specific "
-            "loader is not implemented in this MVP. Use dummy mode for smoke tests or add a "
-            "compatible benchmark checkpoint loader before reporting CNN-v2 annotations."
-        )
-
-    def predict_proba(self, sequences: list[str]) -> list[float]:  # pragma: no cover - constructor raises
-        raise NotImplementedError
-
-    def metadata(self) -> dict:  # pragma: no cover - constructor raises
-        return {"model_family": "cnn_v2", "checkpoint": str(self.checkpoint)}
-
-
 def build_predictor(
     model_family: str,
     *,
@@ -203,8 +172,6 @@ def build_predictor(
         return DummyPromoterPredictor()
     if model_family == "dnabert2":
         return DNABERT2PromoterPredictor(checkpoint=checkpoint, benchmark_manifest=benchmark_manifest)
-    if model_family == "cnn_v2":
-        return CnnV2PromoterPredictor(checkpoint=checkpoint, benchmark_manifest=benchmark_manifest)
     raise ValueError(f"Unsupported model family: {model_family}")
 
 
@@ -222,10 +189,7 @@ def _resolve_torch_device(torch: Any) -> Any:
 
 
 def _load_torch_state_dict(torch: Any, checkpoint: Path) -> dict[str, Any]:
-    try:
-        state = torch.load(checkpoint, map_location="cpu", weights_only=False)
-    except TypeError:  # pragma: no cover - older torch compatibility
-        state = torch.load(checkpoint, map_location="cpu")
+    state = torch.load(checkpoint, map_location="cpu", weights_only=True)
     if isinstance(state, dict) and "state_dict" in state:
         state = state["state_dict"]
     if not isinstance(state, dict):

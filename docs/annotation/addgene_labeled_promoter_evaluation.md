@@ -18,7 +18,12 @@ seqtrainer annotate promoter data/addgene_18115/raw/pAN1717.gb `
 
 PowerShell uses a backtick for continuation. On Windows Command Prompt, use one line or replace the backticks with `^`.
 
-The run preserves the input GenBank features and writes an annotated GenBank file, `predictions.csv`, `gold_promoters.csv`, `window_predictions.csv`, `merged_predictions.csv`, `promoter_matches.csv`, `metrics.csv`, `metrics.json`, `annotation_manifest.json`, `sbol_validation.json`, optional SBOL3 `annotated.nt`, and SBOL2 RDF/XML `annotated_sbol2.rdf` for SBOLCanvas. Add `--clean-output` to clear the named evaluation folder and replace old primary outputs before a repeat run.
+The run preserves input features and writes an annotated GenBank file,
+`predictions.csv`, `gold_promoters.csv`, `window_predictions.csv`,
+`promoter_matches.csv`, `metrics.csv`, `metrics.json`,
+`annotation_manifest.json`, `sbol_validation.json`, optional SBOL3
+`annotated.nt`, and SBOL2 RDF/XML `annotated_sbol2.rdf` for SBOLCanvas. Add
+`--clean-output` to replace the named run artifacts before a repeat run.
 
 ## Collection
 
@@ -44,4 +49,4 @@ Tier A accepts `promoter`, regulatory features with `regulatory_class=promoter`,
 
 ## Metrics and coordinate policy
 
-Window labels use the centre of each strand-specific window and require the centre to lie inside a same-strand labelled promoter. Thresholds are fixed from the training benchmark and never tuned on Addgene. Merged predictions are matched one-to-one to gold promoters by strand-aware IoU, reported at 0.10, 0.25, and 0.50. Biopython uses 0-based/end-exclusive coordinates; SBOL3 uses 1-based/inclusive `Range` coordinates. Circular-origin features become ordered, bounded SBOL ranges.
+Window labels use the centre of each strand-specific window and require the centre to lie inside a same-strand labelled promoter. Thresholds are fixed from the training benchmark and never tuned on Addgene. Merged predictions are matched one-to-one to gold promoters by strand-aware IoU at 0.10, 0.25, and the requested `--iou-threshold`. Biopython uses 0-based/end-exclusive coordinates; SBOL3 uses 1-based/inclusive `Range` coordinates. Circular-origin features become ordered, bounded SBOL ranges.

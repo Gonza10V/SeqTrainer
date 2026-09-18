@@ -91,7 +91,7 @@ def run_promoter_annotation(
 
     manifest_data, manifest_warnings = _load_manifest(
         config.benchmark_manifest,
-        allow_missing=config.threshold is not None and config.window_size is not None,
+        allow_missing=config.model_family == "dummy" and config.threshold is not None and config.window_size is not None,
     )
     threshold, threshold_source = _resolve_threshold(config.threshold, manifest_data)
     window_size = _resolve_window_size(config.window_size, manifest_data)
@@ -140,7 +140,12 @@ def run_promoter_annotation(
         if passed:
             passing.append((window, score))
 
-    regions = _merge_passing_windows(passing, merge_distance=config.merge_distance)
+    regions = _merge_passing_windows(
+        passing,
+        merge_distance=config.merge_distance,
+        sequence_length=len(record.seq),
+        circular=record_topology(record) == "circular",
+    )
     region_by_window = {
         window_id: region.region_id
         for region in regions
@@ -264,10 +269,8 @@ def _write_external_evaluation(
         iou_thresholds=(0.10, 0.25, config.iou_threshold),
     )
     window_path = evaluation_dir / "window_predictions.csv"
-    merged_path = evaluation_dir / "merged_predictions.csv"
     matches_path = evaluation_dir / "promoter_matches.csv"
     window_frame.to_csv(window_path, index=False)
-    merged_frame.to_csv(merged_path, index=False)
     merged_frame.to_csv(matches_path, index=False)
     metrics = {"window": window_metrics, "merged": merged_metrics, "annotation_completeness": config.annotation_completeness}
     (evaluation_dir / "metrics.json").write_text(json.dumps(metrics, indent=2, default=_json_default) + "\n", encoding="utf-8")
@@ -422,30 +425,12 @@ def _resolve_model_bundle(
     if not bundle.is_dir():
         raise FileNotFoundError(f"Model bundle directory not found: {bundle}")
 
-    checkpoint_candidates = (
-        bundle / "checkpoints" / "best_model.pt",
-        bundle / "checkpoints" / "best.pt",
-        bundle / "best_model.pt",
-        bundle / "best.pt",
-        bundle / "model.pt",
-    )
-    manifest_candidates = (
-        bundle / "manifest.json",
-        bundle / "benchmark_manifest.json",
-    )
-
-    resolved_checkpoint = checkpoint or next(
-        (path for path in checkpoint_candidates if path.is_file()),
-        None,
-    )
-    resolved_manifest = benchmark_manifest or next(
-        (path for path in manifest_candidates if path.is_file()),
-        None,
-    )
+    resolved_checkpoint = checkpoint or bundle / "checkpoints" / "best_model.pt"
+    resolved_manifest = benchmark_manifest or bundle / "manifest.json"
     missing = []
-    if resolved_checkpoint is None:
-        missing.append("checkpoint (expected checkpoints/best_model.pt or best.pt)")
-    if resolved_manifest is None:
+    if not resolved_checkpoint.is_file():
+        missing.append("checkpoint (expected checkpoints/best_model.pt)")
+    if not resolved_manifest.is_file():
         missing.append("manifest.json")
     if missing:
         raise FileNotFoundError(
@@ -458,34 +443,55 @@ def _merge_passing_windows(
     passing: list[tuple[SequenceWindow, float]],
     *,
     merge_distance: int,
+    sequence_length: int | None = None,
+    circular: bool = False,
 ) -> list[PromoterRegion]:
-    sorted_windows = sorted(passing, key=lambda item: (item[0].strand, item[0].start, item[0].end))
-    regions: list[PromoterRegion] = []
-    current: dict[str, Any] | None = None
-    for window, score in sorted_windows:
-        if (
-            current is None
-            or current["strand"] != window.strand
-            or window.start > current["end"] + merge_distance
-            or window.is_circular_boundary_window != current["crosses_boundary"]
-        ):
-            if current is not None:
-                regions.append(_region_from_state(current, len(regions)))
-            current = {
-                "start": window.start,
-                "end": window.end,
-                "strand": window.strand,
-                "score": score,
-                "windows": [window.window_id],
-                "crosses_boundary": window.is_circular_boundary_window,
-            }
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for window, score in sorted(passing, key=lambda item: (item[0].strand, item[0].start, item[0].end)):
+        states = grouped.setdefault(window.strand, [])
+        if not states or window.start > states[-1]["end"] + merge_distance:
+            states.append(
+                {
+                    "start": window.start,
+                    "end": window.end,
+                    "strand": window.strand,
+                    "score": score,
+                    "windows": [window.window_id],
+                    "crosses_boundary": window.is_circular_boundary_window,
+                }
+            )
             continue
+        current = states[-1]
         current["end"] = max(current["end"], window.end)
         current["score"] = max(current["score"], score)
         current["windows"].append(window.window_id)
-    if current is not None:
-        regions.append(_region_from_state(current, len(regions)))
-    return regions
+        current["crosses_boundary"] = current["crosses_boundary"] or window.is_circular_boundary_window
+
+    states: list[dict[str, Any]] = []
+    for strand in sorted(grouped):
+        strand_states = grouped[strand]
+        if (
+            circular
+            and sequence_length is not None
+            and len(strand_states) > 1
+            and strand_states[-1]["crosses_boundary"]
+            and strand_states[0]["start"] + sequence_length <= strand_states[-1]["end"] + merge_distance
+        ):
+            first = strand_states.pop(0)
+            last = strand_states.pop()
+            strand_states.insert(
+                0,
+                {
+                    "start": last["start"],
+                    "end": first["end"] + sequence_length,
+                    "strand": strand,
+                    "score": max(last["score"], first["score"]),
+                    "windows": last["windows"] + first["windows"],
+                    "crosses_boundary": True,
+                },
+            )
+        states.extend(strand_states)
+    return [_region_from_state(state, index) for index, state in enumerate(states)]
 
 
 def _region_from_state(state: dict[str, Any], idx: int) -> PromoterRegion:

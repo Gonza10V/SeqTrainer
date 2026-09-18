@@ -4,7 +4,8 @@ import pandas as pd
 
 from seqtrainer.annotation import PromoterAnnotationConfig, run_promoter_annotation
 from seqtrainer.annotation.genbank_io import read_genbank
-from seqtrainer.annotation.windows import generate_sliding_windows, reverse_complement
+from seqtrainer.annotation.promoter_inference import _merge_passing_windows
+from seqtrainer.annotation.windows import SequenceWindow, generate_sliding_windows, reverse_complement
 from seqtrainer.cli.main import main
 
 
@@ -52,6 +53,39 @@ def test_reverse_complement_and_circular_windows():
     assert any(window.strand == "-" for window in windows)
     assert any(window.is_circular_boundary_window for window in windows)
     assert any("TATA" in window.sequence for window in windows)
+
+
+def test_linear_windows_include_the_final_anchored_window():
+    windows = generate_sliding_windows(
+        "A" * 320,
+        window_size=300,
+        step_size=25,
+        circular=False,
+        scan_both_strands=False,
+    )
+
+    assert [(window.start, window.end) for window in windows] == [(0, 300), (20, 320)]
+
+
+def test_short_circular_windows_repeat_to_the_requested_length():
+    windows = generate_sliding_windows("ACG", window_size=10, step_size=1, circular=True)
+
+    assert len(windows) == 6
+    assert {len(window.sequence) for window in windows} == {10}
+    assert all(window.is_circular_boundary_window for window in windows)
+
+
+def test_origin_spanning_windows_merge_to_one_region():
+    passing = [
+        (SequenceWindow("late", 90, 110, "+", "A" * 20, True), 0.9),
+        (SequenceWindow("early", 0, 20, "+", "A" * 20, False), 0.8),
+    ]
+
+    regions = _merge_passing_windows(passing, merge_distance=0, sequence_length=100, circular=True)
+
+    assert len(regions) == 1
+    assert (regions[0].start, regions[0].end, regions[0].crosses_boundary) == (90, 120, True)
+    assert regions[0].source_window_ids == ("late", "early")
 
 
 def test_promoter_annotation_dummy_preserves_features_and_writes_outputs(tmp_path):

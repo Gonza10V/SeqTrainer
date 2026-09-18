@@ -106,7 +106,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "promoters", aliases=["promoter"], help="Annotate predicted promoters in GenBank files"
     )
     annotate_promoters.add_argument("input", type=Path)
-    annotate_promoters.add_argument("--model-family", choices=("dnabert2", "cnn_v2", "dummy"), default="dummy")
+    annotate_promoters.add_argument("--model-family", choices=("dnabert2", "dummy"), default="dummy")
     annotate_promoters.add_argument(
         "--model-bundle",
         type=Path,
@@ -151,7 +151,7 @@ def _build_parser() -> argparse.ArgumentParser:
     annotate_collection.add_argument("--manifest", type=Path, required=True)
     annotate_collection.add_argument("--input-dir", type=Path, required=True)
     annotate_collection.add_argument("--output-dir", type=Path, required=True)
-    annotate_collection.add_argument("--predictor", "--model-family", dest="predictor", choices=("dnabert2", "cnn_v2", "dummy"), default="dummy")
+    annotate_collection.add_argument("--predictor", "--model-family", dest="predictor", choices=("dnabert2", "dummy"), default="dummy")
     annotate_collection.add_argument("--model-path", "--checkpoint", dest="model_path", type=Path)
     annotate_collection.add_argument("--benchmark-manifest", type=Path)
     annotate_collection.add_argument("--sbol-namespace", default="https://seqtrainer.org/designs")

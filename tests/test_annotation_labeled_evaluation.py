@@ -8,6 +8,9 @@ from seqtrainer.annotation.coordinate_conversion import sbol_orientation, sbol_r
 from seqtrainer.annotation.ground_truth import extract_ground_truth_promoters
 from seqtrainer.annotation.windows import generate_sliding_windows
 from seqtrainer.annotation.sbol3_export import _safe_id
+from seqtrainer.annotation.evaluation import evaluate_merged_features
+from seqtrainer.annotation.ground_truth import GroundTruthPromoter
+from seqtrainer.annotation.write_features import PromoterRegion
 
 
 def _record():
@@ -85,7 +88,6 @@ def test_labelled_evaluation_writes_ground_truth_and_metrics(tmp_path: Path):
     )
     assert (evaluation_dir / "gold_promoters.csv").exists()
     assert (evaluation_dir / "window_predictions.csv").exists()
-    assert (evaluation_dir / "merged_predictions.csv").exists()
     assert (evaluation_dir / "promoter_matches.csv").exists()
     assert (evaluation_dir / "metrics.json").exists()
     assert (evaluation_dir / "metrics.csv").exists()
@@ -93,6 +95,54 @@ def test_labelled_evaluation_writes_ground_truth_and_metrics(tmp_path: Path):
     assert (tmp_path / "annotated.rdf").exists()
     assert manifest["evaluation"]["gold_csv"]
     assert pd.read_csv(evaluation_dir / "gold_promoters.csv").shape[0] == 4
+
+
+def _gold(gold_id: str, start: int, end: int) -> GroundTruthPromoter:
+    return GroundTruthPromoter(
+        plasmid_id="p1",
+        record_id="p1",
+        gold_id=gold_id,
+        start=start,
+        end=end,
+        strand=1,
+        wraps_origin=False,
+        label="promoter",
+        feature_type="promoter",
+        evidence_tier="A",
+        evidence_rule="test",
+        raw_qualifiers="{}",
+    )
+
+
+def _region(region_id: str, start: int, end: int) -> PromoterRegion:
+    return PromoterRegion(region_id, start, end, "+", 0.9, (region_id,))
+
+
+def test_merged_evaluation_uses_the_requested_iou_threshold():
+    _, metrics = evaluate_merged_features(
+        [_region("prediction", 0, 10)],
+        [_gold("gold", 0, 20)],
+        sequence_length=100,
+        plasmid_id="p1",
+        iou_thresholds=(0.10, 0.25, 0.75),
+    )
+
+    assert metrics["iou_threshold"] == 0.75
+    assert metrics["matched_promoter_count"] == 0
+    assert metrics["labelled_promoter_recall"] == 0.0
+    assert metrics["matched_promoter_counts"]["0.25"] == 1
+
+
+def test_merged_evaluation_uses_maximum_cardinality_matching():
+    _, metrics = evaluate_merged_features(
+        [_region("broad", 0, 10), _region("narrow", 0, 8)],
+        [_gold("short", 0, 10), _gold("long", 0, 20)],
+        sequence_length=100,
+        plasmid_id="p1",
+        iou_thresholds=(0.50,),
+    )
+
+    assert metrics["matched_promoter_count"] == 2
 
 
 def test_annotation_cli_writes_validated_sbol3_output(tmp_path: Path):

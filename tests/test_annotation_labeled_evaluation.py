@@ -1,0 +1,345 @@
+from pathlib import Path
+
+import pandas as pd
+
+from seqtrainer.annotation import PromoterAnnotationConfig, run_promoter_annotation
+from seqtrainer.annotation.collection import run_promoter_collection
+from seqtrainer.annotation.coordinate_conversion import sbol_orientation, sbol_ranges_for_location
+from seqtrainer.annotation.ground_truth import extract_ground_truth_promoters
+from seqtrainer.annotation.windows import generate_sliding_windows
+from seqtrainer.annotation.sbol3_export import _safe_id
+from seqtrainer.annotation.evaluation import evaluate_merged_features
+from seqtrainer.annotation.ground_truth import GroundTruthPromoter
+from seqtrainer.annotation.write_features import PromoterRegion
+
+
+def _record():
+    from Bio.Seq import Seq
+    from Bio.SeqFeature import CompoundLocation, FeatureLocation, SeqFeature
+    from Bio.SeqRecord import SeqRecord
+
+    record = SeqRecord(Seq("A" * 30), id="labelled_plasmid", name="labelled_plasmid")
+    record.annotations.update({"molecule_type": "DNA", "topology": "circular"})
+    record.features = [
+        SeqFeature(FeatureLocation(4, 9, strand=1), type="promoter", qualifiers={"label": ["deposited_p"]}),
+        SeqFeature(FeatureLocation(12, 16, strand=-1), type="regulatory", qualifiers={"regulatory_class": ["promoter"]}),
+        SeqFeature(FeatureLocation(26, 30, strand=1), type="misc_feature", qualifiers={"label": ["explicit promoter marker"]}),
+        SeqFeature(CompoundLocation([FeatureLocation(27, 30, strand=1), FeatureLocation(0, 3, strand=1)]), type="promoter", qualifiers={"label": ["origin promoter"]}),
+        SeqFeature(FeatureLocation(18, 20), type="misc_feature", qualifiers={"label": ["promoterless cassette"]}),
+    ]
+    return record
+
+
+def test_ground_truth_evidence_tiers_and_exclusions():
+    promoters = extract_ground_truth_promoters(_record(), plasmid_id="p1")
+    assert [item.evidence_tier for item in promoters] == ["A", "A", "B", "A"]
+    assert promoters[-1].wraps_origin is True
+    strict = extract_ground_truth_promoters(_record(), label_mode="strict")
+    assert len(strict) == 3
+    assert all(item.evidence_tier == "A" for item in strict)
+
+
+def test_so_cross_reference_is_tier_a_and_plasmid_name_is_not_evidence():
+    from Bio.SeqFeature import FeatureLocation, SeqFeature
+
+    record = _record()
+    record.features.append(SeqFeature(FeatureLocation(20, 24), type="misc_feature", qualifiers={"db_xref": ["SO:0000167"]}))
+    assert any(item.evidence_rule == "db_xref=SO:0000167" for item in extract_ground_truth_promoters(record))
+    record.features = []
+    record.id = "promoter_expected_but_unlabelled"
+    assert extract_ground_truth_promoters(record) == []
+
+
+def test_coordinate_conversion_is_one_based_and_bounded():
+    record = _record()
+    ranges = sbol_ranges_for_location(record.features[3].location, len(record.seq))
+    assert [(item["start"], item["end"]) for item in ranges] == [(28, 30), (1, 3)]
+    assert sbol_orientation(1).endswith("#inline")
+    assert sbol_orientation(-1).endswith("#reverseComplement")
+
+
+def test_sbol_safe_id_handles_empty_and_punctuation_only_record_ids():
+    assert _safe_id(".") == "plasmid"
+    assert _safe_id("123") == "plasmid_123"
+    assert _safe_id("pAN1717") == "pAN1717"
+
+
+def test_labelled_evaluation_writes_ground_truth_and_metrics(tmp_path: Path):
+    from Bio import SeqIO
+
+    input_path = tmp_path / "input.gb"
+    SeqIO.write(_record(), input_path, "genbank")
+    evaluation_dir = tmp_path / "evaluation"
+    manifest = run_promoter_annotation(
+        PromoterAnnotationConfig(
+            input_file=input_path,
+            output_file=tmp_path / "annotated.gb",
+            predictions_csv=tmp_path / "predictions.csv",
+            manifest=tmp_path / "annotation_manifest.json",
+            model_family="dummy",
+            threshold=0.8,
+            window_size=8,
+            step_size=4,
+            evaluation_dir=evaluation_dir,
+            sbol_output=tmp_path / "annotated.nt",
+            sbol2_output=tmp_path / "annotated.rdf",
+            annotation_completeness="verified_complete",
+        )
+    )
+    assert (evaluation_dir / "gold_promoters.csv").exists()
+    assert (evaluation_dir / "window_predictions.csv").exists()
+    assert (evaluation_dir / "promoter_matches.csv").exists()
+    assert (evaluation_dir / "metrics.json").exists()
+    assert (evaluation_dir / "metrics.csv").exists()
+    assert (tmp_path / "annotated.nt").exists()
+    assert (tmp_path / "annotated.rdf").exists()
+    assert manifest["evaluation"]["gold_csv"]
+    assert pd.read_csv(evaluation_dir / "gold_promoters.csv").shape[0] == 4
+
+
+def _gold(gold_id: str, start: int, end: int) -> GroundTruthPromoter:
+    return GroundTruthPromoter(
+        plasmid_id="p1",
+        record_id="p1",
+        gold_id=gold_id,
+        start=start,
+        end=end,
+        strand=1,
+        wraps_origin=False,
+        label="promoter",
+        feature_type="promoter",
+        evidence_tier="A",
+        evidence_rule="test",
+        raw_qualifiers="{}",
+    )
+
+
+def _region(region_id: str, start: int, end: int) -> PromoterRegion:
+    return PromoterRegion(region_id, start, end, "+", 0.9, (region_id,))
+
+
+def test_merged_evaluation_uses_the_requested_iou_threshold():
+    _, metrics = evaluate_merged_features(
+        [_region("prediction", 0, 10)],
+        [_gold("gold", 0, 20)],
+        sequence_length=100,
+        plasmid_id="p1",
+        iou_thresholds=(0.10, 0.25, 0.75),
+    )
+
+    assert metrics["iou_threshold"] == 0.75
+    assert metrics["matched_promoter_count"] == 0
+    assert metrics["labelled_promoter_recall"] == 0.0
+    assert metrics["matched_promoter_counts"]["0.25"] == 1
+
+
+def test_merged_evaluation_uses_maximum_cardinality_matching():
+    _, metrics = evaluate_merged_features(
+        [_region("broad", 0, 10), _region("narrow", 0, 8)],
+        [_gold("short", 0, 10), _gold("long", 0, 20)],
+        sequence_length=100,
+        plasmid_id="p1",
+        iou_thresholds=(0.50,),
+    )
+
+    assert metrics["matched_promoter_count"] == 2
+
+
+def test_annotation_cli_writes_validated_sbol3_output(tmp_path: Path):
+    import json
+
+    from Bio import SeqIO
+    import sbol3
+
+    input_path = tmp_path / "input.gb"
+    SeqIO.write(_record(), input_path, "genbank")
+    output_path = tmp_path / "annotated.gb"
+    sbol_path = tmp_path / "annotated.nt"
+    sbol2_path = tmp_path / "annotated.rdf"
+
+    from seqtrainer.cli.main import main
+
+    exit_code = main(
+        [
+            "annotate",
+            "promoters",
+            str(input_path),
+            "--model-family",
+            "dummy",
+            "--threshold",
+            "0.8",
+            "--window-size",
+            "8",
+            "--step-size",
+            "4",
+            "--output",
+            str(output_path),
+            "--predictions-csv",
+            str(tmp_path / "predictions.csv"),
+            "--manifest",
+            str(tmp_path / "manifest.json"),
+            "--sbol-output",
+            str(sbol_path),
+            "--sbol2-output",
+            str(sbol2_path),
+        ]
+    )
+
+    assert exit_code == 0
+    assert sbol_path.exists()
+    assert sbol2_path.exists()
+    document = sbol3.Document()
+    document.read(str(sbol_path))
+    assert any(isinstance(obj, sbol3.Component) for obj in document.objects)
+    assert any(isinstance(obj, sbol3.Sequence) for obj in document.objects)
+
+    import sbol2
+
+    legacy_document = sbol2.Document()
+    legacy_document.read(str(sbol2_path))
+    parent = next(
+        obj
+        for obj in legacy_document
+        if isinstance(obj, sbol2.ComponentDefinition) and obj.displayId == "labelled_plasmid"
+    )
+    assert len(parent.components) >= 1
+    assert len(parent.sequenceAnnotations) >= 1
+    component_ids = {component.identity for component in parent.components}
+    assert all(annotation.component in component_ids for annotation in parent.sequenceAnnotations)
+    annotation_manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+    sbol2_metadata = annotation_manifest["evaluation"]["sbol"]["sbol2"]
+    assert sbol2_metadata["canvas_compatible"] is True
+    assert sbol2_metadata["canvas_roleless_child_component_count"] == 0
+
+
+def test_sbol2_export_assigns_canvas_safe_role_to_untyped_features(tmp_path: Path):
+    """SBOLCanvas requires each rendered child definition to have a role."""
+    from Bio import SeqIO
+    from Bio.SeqFeature import FeatureLocation, SeqFeature
+    import sbol2
+
+    record = _record()
+    record.features.append(
+        SeqFeature(
+            FeatureLocation(20, 23, strand=1),
+            type="misc_feature",
+            qualifiers={"label": ["untyped_source_feature"]},
+        )
+    )
+    input_path = tmp_path / "input.gb"
+    sbol2_path = tmp_path / "annotated.rdf"
+    SeqIO.write(record, input_path, "genbank")
+
+    run_promoter_annotation(
+        PromoterAnnotationConfig(
+            input_file=input_path,
+            output_file=tmp_path / "annotated.gb",
+            predictions_csv=tmp_path / "predictions.csv",
+            manifest=tmp_path / "manifest.json",
+            model_family="dummy",
+            threshold=0.8,
+            window_size=8,
+            step_size=4,
+            sbol2_output=sbol2_path,
+        )
+    )
+
+    document = sbol2.Document()
+    document.read(str(sbol2_path))
+    parent = next(
+        obj
+        for obj in document
+        if isinstance(obj, sbol2.ComponentDefinition) and obj.displayId == "labelled_plasmid"
+    )
+    definitions = [document.getComponentDefinition(component.definition) for component in parent.components]
+    assert all(definition.roles for definition in definitions)
+
+
+def test_evaluation_captures_gold_before_source_features_are_removed(tmp_path: Path):
+    from Bio import SeqIO
+
+    input_path = tmp_path / "input.gb"
+    SeqIO.write(_record(), input_path, "genbank")
+    evaluation_dir = tmp_path / "evaluation"
+    run_promoter_annotation(
+        PromoterAnnotationConfig(
+            input_file=input_path,
+            output_file=tmp_path / "prediction_only.gb",
+            predictions_csv=tmp_path / "predictions.csv",
+            manifest=tmp_path / "annotation_manifest.json",
+            model_family="dummy",
+            threshold=0.8,
+            window_size=8,
+            step_size=4,
+            preserve_existing_features=False,
+            evaluation_dir=evaluation_dir,
+            annotation_completeness="verified_complete",
+        )
+    )
+    assert pd.read_csv(evaluation_dir / "gold_promoters.csv").shape[0] == 4
+
+
+def test_clean_output_removes_previous_evaluation_artifacts(tmp_path: Path):
+    from Bio import SeqIO
+
+    input_path = tmp_path / "input.gb"
+    SeqIO.write(_record(), input_path, "genbank")
+    evaluation_dir = tmp_path / "evaluation"
+    evaluation_dir.mkdir()
+    (evaluation_dir / "stale_plot.png").write_bytes(b"old")
+
+    run_promoter_annotation(
+        PromoterAnnotationConfig(
+            input_file=input_path,
+            output_file=tmp_path / "annotated.gb",
+            predictions_csv=tmp_path / "predictions.csv",
+            manifest=tmp_path / "manifest.json",
+            model_family="dummy",
+            threshold=0.8,
+            window_size=8,
+            step_size=4,
+            evaluation_dir=evaluation_dir,
+            clean_output=True,
+        )
+    )
+
+    assert not (evaluation_dir / "stale_plot.png").exists()
+    assert (evaluation_dir / "metrics.json").exists()
+
+
+def test_window_centre_labels_same_strand():
+    record = _record()
+    gold = extract_ground_truth_promoters(record)
+    windows = generate_sliding_windows(str(record.seq), window_size=6, step_size=6, circular=True, scan_both_strands=True)
+    labels, ids = __import__("seqtrainer.annotation.evaluation", fromlist=["window_gold_labels"]).window_gold_labels(windows, gold, len(record.seq))
+    assert len(labels) == len(windows)
+    assert any(label == 1 for label in labels)
+    assert any(ids)
+
+
+def test_collection_skips_missing_files_and_writes_audit(tmp_path: Path):
+    from Bio import SeqIO
+
+    input_dir = tmp_path / "raw"
+    input_dir.mkdir()
+    SeqIO.write(_record(), input_dir / "available.gb", "genbank")
+    manifest = tmp_path / "collection.csv"
+    manifest.write_text(
+        "addgene_id,plasmid_name,expected_local_filename,plasmid_url\n"
+        "1,available,available.gb,https://www.addgene.org/1/\n"
+        "2,missing,missing.gb,https://www.addgene.org/2/\n",
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "outputs"
+    result = run_promoter_collection(
+        manifest,
+        input_dir=input_dir,
+        output_dir=output_dir,
+        predictor="dummy",
+        continue_on_error=True,
+    )
+    assert result["included_count"] == 1
+    assert result["excluded_count"] == 1
+    assert (output_dir / "included_plasmids.csv").exists()
+    excluded = pd.read_csv(output_dir / "excluded_plasmids.csv")
+    assert "unavailable" in excluded.loc[0, "exclusion_reason"]

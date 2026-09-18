@@ -12,3 +12,12 @@ testvenv/
 seqtrainer-data
 dnabert-out
 dnabertvenv
+outputs/models/
+outputs/
+data/promoter_classification/
+external/
+.pytest_tmp/
+
+# Locally downloaded Addgene sequences
+data/addgene_18115/raw/
+outputs/addgene_18115/

@@ -41,9 +41,20 @@ keras = [
   "tensorflow>=2.12",
 ]
 torch = [
-  "torch>=2.2",
+  # PyTorch 2.3+ no longer publishes Intel macOS wheels.
+  "torch>=2.2,<2.3; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+  "torch>=2.2; sys_platform != 'darwin' or platform_machine != 'x86_64'",
   "transformers>=4.30",
   "einops>=0.6.1",
+  "numpy<2",
+]
+bacteria-titan = [
+  "pyarrow>=12",
+  "matplotlib>=3.7",
+]
+evo2-tokenizer = [
+  # Evo 2 constructs vortex.model.tokenizer.CharLevelTokenizer(512).
+  "vtx>=1.1.0; python_version >= '3.10'",
 ]
 gnn = [
   "torch>=2.2",
@@ -61,6 +72,28 @@ dev = [
 
 [project.scripts]
 seqtrainer = "seqtrainer.cli.main:main"
+seqtrainer-titans-stage-a-benchmark = "seqtrainer.torch.titans_paper_mac.benchmark:main"
+seqtrainer-titans-stage-b-benchmark = "seqtrainer.torch.titans_paper_mac_stage_b.benchmark:main"
+seqtrainer-titans-stage-b-long-context = "seqtrainer.torch.titans_paper_mac_stage_b.long_context_benchmark:main"
+seqtrainer-titans-stage-b-audit = "seqtrainer.torch.titans_paper_mac_stage_b.audit:main"
+seqtrainer-titans-stage-b-a100-pilot = "seqtrainer.torch.titans_paper_mac_stage_b.a100_pilot:main"
+seqtrainer-titans-stage-c-tokenizers = "seqtrainer.torch.titans_paper_mac_stage_c.cli:tokenizer_study_main"
+seqtrainer-titans-stage-c-cpu-pilot = "seqtrainer.torch.titans_paper_mac_stage_c.cli:cpu_pilot_main"
+seqtrainer-titans-stage-c-hardware-preflight = "seqtrainer.torch.titans_paper_mac_stage_c.cli:hardware_preflight_main"
+seqtrainer-titans-stage-c-train = "seqtrainer.torch.titans_paper_mac_stage_c.train_cli:main"
+seqtrainer-titans-stage-c-capacity = "seqtrainer.torch.titans_paper_mac_stage_c.capacity_cli:main"
+seqtrainer-titans-stage-c-gpu-smoke = "seqtrainer.torch.titans_paper_mac_stage_c.smoke_cli:main"
+seqtrainer-titans-stage-c-t4-evidence = "seqtrainer.torch.titans_paper_mac_stage_c.t4_evidence_cli:main"
+seqtrainer-titans-stage-c-evaluate = "seqtrainer.torch.titans_paper_mac_stage_c.evaluate_cli:main"
+seqtrainer-titans-stage-c-colab-run = "seqtrainer.torch.titans_paper_mac_stage_c.colab_cli:main"
+seqtrainer-titans-stage-c-study = "seqtrainer.torch.titans_paper_mac_stage_c.study:main"
+seqtrainer-titans-stage-c-resume-verify = "seqtrainer.torch.titans_paper_mac_stage_c.resume_verify_cli:main"
+seqtrainer-titans-stage-c-memory-trace = "seqtrainer.torch.titans_paper_mac_stage_c.memory_trace_cli:main"
+seqtrainer-titans-stage-c-memory-behavior = "seqtrainer.torch.titans_paper_mac_stage_c.memory_behavior_cli:main"
+seqtrainer-titans-stage-c-architecture = "seqtrainer.torch.titans_paper_mac_stage_c.architecture_cli:main"
+seqtrainer-titans-stage-c-generate = "seqtrainer.torch.titans_paper_mac_stage_c.generation_cli:main"
+seqtrainer-titans-stage-c-panel = "seqtrainer.torch.titans_paper_mac_stage_c.panel_cli:main"
+seqtrainer-titans-stage-c-scale-gate = "seqtrainer.torch.titans_paper_mac_stage_c.scale_gate_cli:main"
 
 [project.urls]
 Homepage = "https://github.com/SynBioDex/SeqTrainer"

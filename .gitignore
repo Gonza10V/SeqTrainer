@@ -1,4 +1,7 @@
 .env
+__pycache__/
+*.py[cod]
+.pytest_cache/
 trainvenv/
 testervenv/
 src/seqtrainer.egg-info/
@@ -12,8 +15,6 @@ outputs/models/
 outputs/
 data/promoter_classification/
 external/
-__pycache__/
-*.py[cod]
 .pytest_tmp/
 
 # Locally downloaded Addgene sequences

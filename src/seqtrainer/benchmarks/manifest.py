@@ -1,5 +1,3 @@
-"""Run manifest helpers for reproducible benchmark artifacts."""
-
 from __future__ import annotations
 
 import platform
@@ -16,17 +14,26 @@ from .config import BenchmarkConfig
 def build_run_manifest(
     config: BenchmarkConfig,
     *,
+    repo_dir: str | Path | None = None,
     split_summary: dict[str, Any] | None = None,
     threshold: float | None = None,
     model_metadata: dict[str, Any] | None = None,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build a manifest with config, split, environment, and git metadata."""
+    """Record benchmark configuration, split, runtime, and Git provenance."""
+
+    split_summary_data = split_summary or {}
+    split_content_sha256 = {
+        split: values.get("content_sha256")
+        for split, values in split_summary_data.items()
+        if isinstance(values, dict)
+    }
     manifest: dict[str, Any] = {
         "experiment": asdict(config.experiment),
         "dataset": {
             **asdict(config.dataset),
-            "split_summary": split_summary or {},
+            "split_summary": split_summary_data,
+            "split_content_sha256": split_content_sha256,
         },
         "label": asdict(config.label),
         "split": asdict(config.split),
@@ -44,7 +51,7 @@ def build_run_manifest(
         "environment": {
             **asdict(config.environment),
             "runtime": runtime_metadata(),
-            "git": git_metadata(),
+            "git": git_metadata(repo_dir),
         },
     }
     if extra:
@@ -53,7 +60,6 @@ def build_run_manifest(
 
 
 def runtime_metadata() -> dict[str, Any]:
-    """Capture lightweight Python and package-version metadata."""
     packages = {}
     for name in ("seqtrainer", "numpy", "pandas", "scikit-learn", "torch", "transformers"):
         try:
@@ -69,7 +75,6 @@ def runtime_metadata() -> dict[str, Any]:
 
 
 def git_metadata(repo_dir: str | Path | None = None) -> dict[str, Any]:
-    """Capture git commit and branch when the code is run inside a git repo."""
     cwd = Path(repo_dir) if repo_dir is not None else Path.cwd()
     return {
         "commit": _git(["rev-parse", "HEAD"], cwd),
@@ -79,7 +84,6 @@ def git_metadata(repo_dir: str | Path | None = None) -> dict[str, Any]:
 
 
 def to_plain_data(value: Any) -> Any:
-    """Convert dataclasses and common containers to JSON-serializable data."""
     if is_dataclass(value):
         return to_plain_data(asdict(value))
     if isinstance(value, dict):
@@ -105,4 +109,3 @@ def _git(args: list[str], cwd: Path) -> str | None:
     if result.returncode != 0:
         return None
     return result.stdout.strip()
-

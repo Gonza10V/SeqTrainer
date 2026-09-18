@@ -1,5 +1,3 @@
-"""Compare completed benchmark artifact folders."""
-
 from __future__ import annotations
 
 import json
@@ -14,17 +12,38 @@ def compare_benchmark_outputs(
     *,
     output_dir: str | Path,
 ) -> dict[str, Path]:
-    """Rank benchmark artifact folders by held-out test MCC and AUPRC."""
+    """Compare completed artifacts only when their dataset contracts match."""
+
     rows: list[dict[str, Any]] = []
+    expected_contract: str | None = None
     for artifact_dir_raw in artifact_dirs:
         artifact_dir = Path(artifact_dir_raw)
         metrics_path = artifact_dir / "metrics.csv"
         manifest_path = artifact_dir / "manifest.json"
-        if not metrics_path.exists():
+        if not metrics_path.exists() or not manifest_path.exists():
             continue
 
+        manifest = _read_json(manifest_path)
+        status = manifest.get("status")
+        if status is None:
+            extra = manifest.get("extra")
+            status = extra.get("status") if isinstance(extra, dict) else None
+        if status is not None and status != "completed":
+            continue
+
+        contract = _comparison_contract(manifest)
+        if contract is None:
+            raise ValueError(
+                f"Cannot compare artifact without a usable dataset contract: {artifact_dir}"
+            )
+        if expected_contract is None:
+            expected_contract = contract
+        elif contract != expected_contract:
+            raise ValueError(
+                "Cannot compare benchmark artifacts with different datasets or split files."
+            )
+
         metrics = pd.read_csv(metrics_path)
-        manifest = _read_json(manifest_path) if manifest_path.exists() else {}
         model = manifest.get("model", {})
         experiment = manifest.get("experiment", {})
         threshold = _selected_threshold(manifest)
@@ -107,6 +126,31 @@ def _summary_markdown(comparison: pd.DataFrame) -> str:
 
 def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _comparison_contract(manifest: dict[str, Any]) -> str | None:
+    dataset = manifest.get("dataset")
+    if not isinstance(dataset, dict):
+        return None
+    split_content_sha256 = dataset.get("split_content_sha256")
+    if not isinstance(split_content_sha256, dict):
+        return None
+    if any(
+        not isinstance(split_content_sha256.get(split), str)
+        for split in ("train", "validation", "test")
+    ):
+        return None
+    contract = {
+        "name": dataset.get("name"),
+        "version": dataset.get("version"),
+        "source_accession": dataset.get("source_accession"),
+        "source_url": dataset.get("source_url"),
+        "split_files": dataset.get("split_files"),
+        "split_content_sha256": split_content_sha256,
+    }
+    if all(value is None for value in contract.values()):
+        return None
+    return json.dumps(contract, sort_keys=True, default=str)
 
 
 def _selected_threshold(manifest: dict[str, Any]) -> Any:

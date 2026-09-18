@@ -1,5 +1,3 @@
-"""Dependency-gated DNABERT2 benchmark runner."""
-
 from __future__ import annotations
 
 import random
@@ -16,7 +14,7 @@ import pandas as pd
 from seqtrainer.benchmarks.artifacts import write_benchmark_outputs
 from seqtrainer.benchmarks.config import BenchmarkConfig
 from seqtrainer.benchmarks.manifest import build_run_manifest
-from seqtrainer.benchmarks.policy import decide_imbalance_policy
+from seqtrainer.benchmarks.policy import decide_imbalance_policy, threshold_metric_from_strategy
 from seqtrainer.benchmarks.runner import BenchmarkRunResult, BenchmarkSkipped
 from seqtrainer.benchmarks.splits import load_predefined_split_frames, summarize_split_frames
 from seqtrainer.metrics import best_threshold_by_metric, binary_classification_metrics
@@ -37,12 +35,11 @@ def run_dnabert2_csv_splits(
     tokenizer: Any | None = None,
     encoder: Any | None = None,
 ) -> BenchmarkRunResult:
-    """Run DNABERT2 frozen/fine-tuned benchmark on predefined CSV splits."""
     try:
         import torch
         from torch import nn
         from torch.utils.data import DataLoader, TensorDataset
-    except ModuleNotFoundError as exc:  # pragma: no cover - depends on optional extras
+    except ModuleNotFoundError as exc:
         raise BenchmarkSkipped(
             "DNABERT2 benchmark requires optional torch dependencies."
         ) from exc
@@ -53,6 +50,18 @@ def run_dnabert2_csv_splits(
     imbalance_policy = decide_imbalance_policy(split_summary)
     params = dict(config.model.params)
     train_params = dict(config.training.params)
+    mode = str(params.get("mode", "frozen_embedding_classifier"))
+    supported_modes = {"frozen_embedding_classifier", "full_finetune", "tokenization_only"}
+    if mode not in supported_modes:
+        raise ValueError(
+            f"Unsupported DNABERT2 model.params.mode={mode!r}. "
+            f"Expected one of {sorted(supported_modes)}."
+        )
+    if mode == "tokenization_only":
+        raise BenchmarkSkipped(
+            "DNABERT2 tokenization_only is a preparation smoke test, not a classifier benchmark. "
+            "Run prepare_dnabert2_tokenized_splits or use dnabert2_frozen.toml for benchmark metrics."
+        )
     allow_download = bool(params.get("allow_download", False))
     local_files_only = not allow_download
     trust_remote_code = bool(params.get("trust_remote_code", True))
@@ -70,7 +79,7 @@ def run_dnabert2_csv_splits(
             disable_flash_attention=bool(params.get("disable_flash_attention", False)),
             revision=params.get("revision"),
         )
-    freeze_encoder = str(params.get("mode", "frozen_embedding_classifier")) != "full_finetune"
+    freeze_encoder = mode != "full_finetune"
     if freeze_encoder:
         for parameter in encoder.parameters():
             parameter.requires_grad = False
@@ -79,7 +88,7 @@ def run_dnabert2_csv_splits(
         _enable_gradient_checkpointing(encoder)
 
     hidden_size = int(getattr(encoder.config, "hidden_size", 768))
-    model = _DnaBert2Classifier(
+    model = _build_classifier(
         encoder=encoder,
         hidden_size=hidden_size,
         pooling=str(params.get("pooling", "mean")),
@@ -107,10 +116,19 @@ def run_dnabert2_csv_splits(
         for split, value in encoded.items()
     }
 
-    pos = int(frames["train"][config.dataset.label_field].astype(int).sum())
-    neg = int(len(frames["train"]) - pos)
-    pos_weight = torch.tensor([neg / max(pos, 1)], dtype=torch.float32, device=device)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    pos_weight = None
+    if imbalance_policy.apply_to_training:
+        train_labels = encoded["train"].labels
+        pos = int(train_labels.sum().item())
+        neg = int(len(train_labels) - pos)
+        pos_weight = torch.tensor(
+            [neg / max(pos, 1)],
+            dtype=torch.float32,
+            device=device,
+        )
+        criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    else:
+        criterion = nn.BCEWithLogitsLoss()
     if freeze_encoder:
         return _run_frozen_embedding_classifier(
             config,
@@ -122,15 +140,16 @@ def run_dnabert2_csv_splits(
             torch=torch,
             nn=nn,
             run_started=run_started,
+            base_dir=base_dir,
             output_dir=output_dir,
         )
 
     optimizer = torch.optim.AdamW(
         (p for p in model.parameters() if p.requires_grad),
-        lr=config.training.learning_rate or 1e-4,
+        lr=1e-4 if config.training.learning_rate is None else float(config.training.learning_rate),
         weight_decay=float(train_params.get("weight_decay", 0.01)),
     )
-    max_epochs = config.training.max_epochs or 3
+    max_epochs = 3 if config.training.max_epochs is None else int(config.training.max_epochs)
     gradient_accumulation_steps = max(
         1, int(train_params.get("gradient_accumulation_steps", 1))
     )
@@ -144,8 +163,9 @@ def run_dnabert2_csv_splits(
     max_grad_norm = float(train_params.get("max_grad_norm", 1.0))
 
     history: list[dict[str, float]] = []
-    best_mcc = float("-inf")
+    best_selection_score = float("-inf")
     best_threshold = 0.5
+    selection_metric = str(config.evaluation.primary_metric).lower()
     patience = int(train_params.get("early_stopping_patience", 3))
     bad_epochs = 0
     out_dir = Path(output_dir or config.outputs.output_dir)
@@ -173,23 +193,34 @@ def run_dnabert2_csv_splits(
             torch,
             precision=precision,
         )
-        threshold, validation_mcc = best_threshold_by_metric(
+        threshold, _, _ = _select_dnabert2_threshold(
+            config,
             validation["label"],
             validation["probability"],
-            metric="mcc",
         )
+        validation_metrics = binary_classification_metrics(
+            validation["label"],
+            validation["probability"],
+            threshold,
+        )
+        validation_selection_score = _primary_metric_score(
+            validation_metrics,
+            selection_metric,
+        )
+        validation_mcc = float(validation_metrics["mcc"])
         history.append(
             {
                 "epoch": float(epoch),
                 "train_loss": float(train_loss),
                 "validation_loss": float(validation["loss"]),
                 "validation_mcc": float(validation_mcc),
+                "validation_selection_score": float(validation_selection_score),
                 "validation_threshold": float(threshold),
                 "learning_rate": float(optimizer.param_groups[0]["lr"]),
             }
         )
-        if validation_mcc > best_mcc:
-            best_mcc = float(validation_mcc)
+        if validation_selection_score > best_selection_score:
+            best_selection_score = float(validation_selection_score)
             best_threshold = float(threshold)
             torch.save(model.state_dict(), checkpoint_path)
             bad_epochs = 0
@@ -201,7 +232,7 @@ def run_dnabert2_csv_splits(
 
     if not checkpoint_path.exists():
         raise RuntimeError("DNABERT2 fine-tuning did not produce a checkpoint")
-    model.load_state_dict(torch.load(checkpoint_path, map_location="cpu"))
+    model.load_state_dict(torch.load(checkpoint_path, map_location="cpu", weights_only=True))
     predictions = {
         split: _predict(
             model,
@@ -226,7 +257,7 @@ def run_dnabert2_csv_splits(
                     "split": split,
                     "idx": np.arange(len(frame)),
                     "sequence": frame[config.dataset.sequence_field].astype(str),
-                    "label": frame[config.dataset.label_field].astype(int),
+                    "label": encoded[split].labels.detach().cpu().numpy().astype(int),
                     "probability": pred["probability"],
                     "threshold": best_threshold,
                     "prediction": (pred["probability"] >= best_threshold).astype(int),
@@ -236,6 +267,7 @@ def run_dnabert2_csv_splits(
 
     manifest = build_run_manifest(
         config,
+        repo_dir=base_dir,
         split_summary=split_summary,
         threshold=best_threshold,
         model_metadata={
@@ -243,7 +275,7 @@ def run_dnabert2_csv_splits(
             "pooling": params.get("pooling", "mean"),
             "freeze_encoder": freeze_encoder,
             "checkpoint": str(checkpoint_path),
-            "pos_weight": float(pos_weight.item()),
+            "pos_weight": float(pos_weight.item()) if pos_weight is not None else None,
             "optimizer": "adamw",
             "warmup_ratio": float(train_params.get("warmup_ratio", 0.0)),
             "gradient_accumulation_steps": gradient_accumulation_steps,
@@ -254,7 +286,8 @@ def run_dnabert2_csv_splits(
             "precision": precision,
             "max_grad_norm": max_grad_norm,
             "optimizer_steps_per_epoch": optimizer_steps_per_epoch,
-            "early_stopping_metric": "validation_mcc",
+            "early_stopping_metric": f"validation_{selection_metric}",
+            "threshold_strategy": config.evaluation.threshold_strategy,
             "resolved_device": str(device),
             "runtime_seconds": float(time.perf_counter() - run_started),
             "peak_memory_mb": _peak_memory_mb(torch, device),
@@ -292,11 +325,15 @@ def _run_frozen_embedding_classifier(
     torch: Any,
     nn: Any,
     run_started: float,
+    base_dir: str | Path | None,
     output_dir: str | Path | None,
 ) -> BenchmarkRunResult:
+    from torch.utils.data import DataLoader, TensorDataset
+
     params = dict(config.model.params)
     train_params = dict(config.training.params)
     pooling = str(params.get("pooling", "mean"))
+    precision = str(config.environment.precision).lower()
     out_dir = Path(output_dir or config.outputs.output_dir)
     embedding_dir = out_dir / "embeddings"
     embedding_dir.mkdir(parents=True, exist_ok=True)
@@ -315,6 +352,7 @@ def _run_frozen_embedding_classifier(
             device=device,
             torch=torch,
             batch_size=config.training.batch_size or 16,
+            precision=precision,
         )
         embeddings[split] = emb
         labels[split] = value.labels
@@ -334,50 +372,94 @@ def _run_frozen_embedding_classifier(
         nn.Dropout(float(params.get("classifier_dropout", 0.1))),
         nn.Linear(hidden_size, 1),
     ).to(device)
+    train_loader = DataLoader(
+        TensorDataset(embeddings["train"], labels["train"]),
+        batch_size=config.training.batch_size or 16,
+        shuffle=True,
+    )
     optimizer = torch.optim.AdamW(
         classifier.parameters(),
-        lr=config.training.learning_rate or 1e-3,
+        lr=1e-3 if config.training.learning_rate is None else float(config.training.learning_rate),
         weight_decay=float(train_params.get("weight_decay", 0.01)),
     )
-    max_epochs = config.training.max_epochs or 20
-    total_steps = max(1, max_epochs)
+    max_epochs = 20 if config.training.max_epochs is None else int(config.training.max_epochs)
+    total_steps = max(1, max_epochs * len(train_loader))
     warmup_steps = int(total_steps * float(train_params.get("warmup_ratio", 0.0)))
     scheduler = _linear_warmup_scheduler(optimizer, warmup_steps, total_steps)
     patience = int(train_params.get("early_stopping_patience", 4))
     best_state = {key: value.detach().cpu().clone() for key, value in classifier.state_dict().items()}
-    best_mcc = float("-inf")
+    best_selection_score = float("-inf")
+    best_auprc = float("-inf")
     best_threshold = 0.5
+    selection_metric = str(config.evaluation.primary_metric).lower()
     bad_epochs = 0
     history: list[dict[str, float]] = []
 
     for epoch in range(1, max_epochs + 1):
         classifier.train()
-        optimizer.zero_grad(set_to_none=True)
-        train_logits = classifier(embeddings["train"].to(device)).squeeze(-1)
-        train_labels = labels["train"].to(device)
-        train_loss = criterion(train_logits, train_labels)
-        train_loss.backward()
-        optimizer.step()
-        scheduler.step()
+        train_loss_total = 0.0
+        train_examples = 0
+        for train_embeddings, train_labels in train_loader:
+            optimizer.zero_grad(set_to_none=True)
+            train_labels = train_labels.to(device)
+            with _autocast_context(torch, device, precision):
+                train_logits = classifier(train_embeddings.to(device)).squeeze(-1)
+                train_loss = criterion(train_logits, train_labels)
+            train_loss.backward()
+            optimizer.step()
+            scheduler.step()
+            batch_size = int(train_labels.shape[0])
+            train_loss_total += float(train_loss.item()) * batch_size
+            train_examples += batch_size
+        train_loss_value = train_loss_total / max(train_examples, 1)
 
-        validation = _predict_from_embeddings(classifier, embeddings["validation"], labels["validation"], criterion, device, torch)
-        threshold, validation_mcc = best_threshold_by_metric(
+        validation = _predict_from_embeddings(
+            classifier,
+            embeddings["validation"],
+            labels["validation"],
+            criterion,
+            device,
+            torch,
+            precision=precision,
+        )
+        threshold, _, _ = _select_dnabert2_threshold(
+            config,
             validation["label"],
             validation["probability"],
-            metric="mcc",
         )
+        validation_metrics = binary_classification_metrics(
+            validation["label"],
+            validation["probability"],
+            threshold,
+        )
+        validation_selection_score = _primary_metric_score(
+            validation_metrics,
+            selection_metric,
+        )
+        validation_mcc = float(validation_metrics["mcc"])
+        validation_auprc = validation_metrics["auprc"]
+        validation_auprc_score = float(validation_auprc) if validation_auprc is not None else float("-inf")
         history.append(
             {
                 "epoch": float(epoch),
-                "train_loss": float(train_loss.item()),
+                "train_loss": train_loss_value,
                 "validation_loss": float(validation["loss"]),
                 "validation_mcc": float(validation_mcc),
+                "validation_selection_score": float(validation_selection_score),
+                "validation_auprc": validation_auprc_score,
                 "validation_threshold": float(threshold),
                 "learning_rate": float(optimizer.param_groups[0]["lr"]),
             }
         )
-        if validation_mcc > best_mcc:
-            best_mcc = float(validation_mcc)
+        if (
+            validation_selection_score > best_selection_score
+            or (
+                validation_selection_score == best_selection_score
+                and validation_auprc_score > best_auprc
+            )
+        ):
+            best_selection_score = float(validation_selection_score)
+            best_auprc = validation_auprc_score
             best_threshold = float(threshold)
             best_state = {key: value.detach().cpu().clone() for key, value in classifier.state_dict().items()}
             bad_epochs = 0
@@ -389,7 +471,15 @@ def _run_frozen_embedding_classifier(
 
     classifier.load_state_dict(best_state)
     predictions = {
-        split: _predict_from_embeddings(classifier, embeddings[split], labels[split], criterion, device, torch)
+        split: _predict_from_embeddings(
+            classifier,
+            embeddings[split],
+            labels[split],
+            criterion,
+            device,
+            torch,
+            precision=precision,
+        )
         for split in ("train", "validation", "test")
     }
     metrics: dict[str, dict[str, Any]] = {}
@@ -405,7 +495,7 @@ def _run_frozen_embedding_classifier(
                     "split": split,
                     "idx": np.arange(len(frame)),
                     "sequence": frame[config.dataset.sequence_field].astype(str),
-                    "label": frame[config.dataset.label_field].astype(int),
+                    "label": encoded[split].labels.detach().cpu().numpy().astype(int),
                     "probability": pred["probability"],
                     "threshold": best_threshold,
                     "prediction": (pred["probability"] >= best_threshold).astype(int),
@@ -416,6 +506,7 @@ def _run_frozen_embedding_classifier(
     checkpoint_path = out_dir / "checkpoints" / "best_model.pt"
     manifest = build_run_manifest(
         config,
+        repo_dir=base_dir,
         split_summary=split_summary,
         threshold=best_threshold,
         model_metadata={
@@ -427,7 +518,10 @@ def _run_frozen_embedding_classifier(
             "pos_weight": float(criterion.pos_weight.item()) if getattr(criterion, "pos_weight", None) is not None else None,
             "optimizer": "adamw",
             "warmup_ratio": float(train_params.get("warmup_ratio", 0.0)),
-            "early_stopping_metric": "validation_mcc",
+            "precision": precision,
+            "early_stopping_metric": f"validation_{selection_metric}",
+            "threshold_strategy": config.evaluation.threshold_strategy,
+            "early_stopping_tie_breaker": "validation_auprc",
             "resolved_device": str(device),
             "runtime_seconds": float(time.perf_counter() - run_started),
             "peak_memory_mb": _peak_memory_mb(torch, device),
@@ -456,31 +550,71 @@ def _run_frozen_embedding_classifier(
     return BenchmarkRunResult(output_dir=out_dir, status="completed", metrics=metrics, manifest=manifest)
 
 
-class _DnaBert2Classifier:
-    def __init__(self, encoder: Any, hidden_size: int, pooling: str, dropout: float) -> None:
-        from torch import nn
+def _build_classifier(encoder: Any, hidden_size: int, pooling: str, dropout: float) -> Any:
+    from torch import nn
 
-        class _Model(nn.Module):
-            def __init__(self) -> None:
-                super().__init__()
-                self.encoder = encoder
-                self.pooling = pooling
-                self.dropout = nn.Dropout(dropout)
-                self.head = nn.Linear(hidden_size, 1)
+    class _Model(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.encoder = encoder
+            self.pooling = pooling
+            self.dropout = nn.Dropout(dropout)
+            self.head = nn.Linear(hidden_size, 1)
 
-            def forward(self, input_ids: Any, attention_mask: Any) -> Any:
-                outputs = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
-                hidden = _last_hidden_state(outputs)
-                pooled = _pool_hidden_states(hidden, attention_mask, self.pooling)
-                return self.head(self.dropout(pooled)).squeeze(-1)
+        def forward(self, input_ids: Any, attention_mask: Any) -> Any:
+            outputs = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
+            hidden = _last_hidden_state(outputs)
+            pooled = _pool_hidden_states(hidden, attention_mask, self.pooling)
+            return self.head(self.dropout(pooled)).squeeze(-1)
 
-        self._model = _Model()
+    return _Model()
 
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._model, name)
 
-    def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        return self._model(*args, **kwargs)
+def _normalize_binary_labels(config: BenchmarkConfig, frame: pd.DataFrame) -> Any:
+    negative_label = config.label.negative_label
+    positive_label = config.label.positive_label
+    if negative_label == positive_label:
+        raise ValueError("Configured negative_label and positive_label must differ.")
+
+    raw_labels = frame[config.dataset.label_field]
+    known = raw_labels.isin([negative_label, positive_label])
+    if not bool(known.all()):
+        unexpected = raw_labels.loc[~known].drop_duplicates().tolist()
+        raise ValueError(
+            f"Labels {unexpected!r} do not match configured negative/positive labels "
+            f"{negative_label!r}/{positive_label!r}."
+        )
+
+    return raw_labels.map({negative_label: 0, positive_label: 1}).to_numpy(dtype=np.float32)
+
+
+def _primary_metric_score(metrics: dict[str, Any], metric: str) -> float:
+    value = metrics.get(metric)
+    if isinstance(value, dict) or value is None:
+        raise ValueError(
+            f"DNABERT2 primary metric {metric!r} is not a scalar classification metric."
+        )
+    return float(value)
+
+
+def _select_dnabert2_threshold(
+    config: BenchmarkConfig,
+    labels: np.ndarray,
+    probabilities: np.ndarray,
+) -> tuple[float, float, str]:
+    strategy = config.evaluation.threshold_strategy
+    metric = threshold_metric_from_strategy(strategy)
+    if metric is None:
+        threshold = 0.5
+        metrics = binary_classification_metrics(labels, probabilities, threshold)
+        return threshold, float(metrics["mcc"]), "mcc"
+
+    threshold, score = best_threshold_by_metric(
+        labels,
+        probabilities,
+        metric=metric,
+    )
+    return float(threshold), float(score), metric
 
 
 def _encode_split(config: BenchmarkConfig, frame: pd.DataFrame, tokenizer: Any, torch: Any) -> _EncodedSplit:
@@ -497,7 +631,10 @@ def _encode_split(config: BenchmarkConfig, frame: pd.DataFrame, tokenizer: Any, 
     attention_mask = encoded.get("attention_mask")
     if attention_mask is None:
         attention_mask = torch.ones_like(encoded["input_ids"])
-    labels = torch.tensor(frame[config.dataset.label_field].astype(int).to_numpy(), dtype=torch.float32)
+    labels = torch.tensor(
+        _normalize_binary_labels(config, frame),
+        dtype=torch.float32,
+    )
     return _EncodedSplit(encoded["input_ids"], attention_mask, labels)
 
 
@@ -512,13 +649,12 @@ def _load_huggingface_dnabert2(
 ) -> tuple[Any, Any]:
     try:
         from transformers import AutoConfig, AutoModel, AutoTokenizer
-    except ModuleNotFoundError as exc:  # pragma: no cover - depends on optional extras
+    except ModuleNotFoundError as exc:
         raise BenchmarkSkipped(
             "DNABERT2 benchmark requires transformers. Install with `python -m pip install -e \".[torch]\"`."
         ) from exc
 
     try:
-        _allow_missing_triton_when_flash_disabled(disable_flash_attention)
         tokenizer = AutoTokenizer.from_pretrained(
             model_name,
             trust_remote_code=trust_remote_code,
@@ -618,38 +754,6 @@ def _load_huggingface_dnabert2(
     return tokenizer, model
 
 
-def _allow_missing_triton_when_flash_disabled(disable_flash_attention: bool) -> None:
-    """Let DNABERT2 fall back to its non-FlashAttention path without Triton.
-
-    The DNABERT2 remote code imports ``flash_attn_triton`` inside a try/except
-    and sets ``flash_attn_qkvpacked_func = None`` when Triton is unavailable.
-    Transformers checks dynamic-module imports before executing that module,
-    however, so native Windows environments fail before DNABERT2 can use its
-    fallback. When flash attention is explicitly disabled, it is safe to allow
-    the missing Triton import and keep the remaining relative imports intact.
-    """
-    if not disable_flash_attention:
-        return
-    try:
-        import transformers.dynamic_module_utils as dynamic_module_utils
-    except Exception:
-        return
-    original = dynamic_module_utils.check_imports
-    if getattr(original, "_seqtrainer_allows_missing_triton", False):
-        return
-
-    def _check_imports_allow_missing_triton(filename: str) -> list[str]:
-        try:
-            return original(filename)
-        except ImportError as exc:
-            if "triton" not in str(exc).lower():
-                raise
-            return dynamic_module_utils.get_relative_imports(filename)
-
-    _check_imports_allow_missing_triton._seqtrainer_allows_missing_triton = True  # type: ignore[attr-defined]
-    dynamic_module_utils.check_imports = _check_imports_allow_missing_triton
-
-
 def _disable_dnabert2_flash_attention(model: Any) -> None:
     """Route DNABERT2 remote code through its standard PyTorch attention path.
 
@@ -672,7 +776,6 @@ def _disable_dnabert2_flash_attention(model: Any) -> None:
 
 
 def _enable_gradient_checkpointing(model: Any) -> None:
-    """Enable activation checkpointing for resource-constrained fine-tuning."""
     enable = getattr(model, "gradient_checkpointing_enable", None)
     if not callable(enable):
         raise BenchmarkSkipped(
@@ -683,10 +786,6 @@ def _enable_gradient_checkpointing(model: Any) -> None:
     config = getattr(model, "config", None)
     if config is not None and hasattr(config, "use_cache"):
         config.use_cache = False
-
-
-def _ensure_pad_token_id(config: Any, tokenizer: Any) -> None:
-    _set_pad_token_id(config, _safe_pad_token_id(tokenizer))
 
 
 def _safe_pad_token_id(tokenizer: Any) -> int:
@@ -760,13 +859,17 @@ def _load_dnabert2_from_state_dict(
         local_files_only=local_files_only,
         revision=revision,
     )
-    try:
-        state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-    except TypeError:  # pragma: no cover - older torch compatibility
-        state_dict = torch.load(checkpoint_path, map_location="cpu")
+    state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
     if isinstance(state_dict, dict) and "state_dict" in state_dict:
         state_dict = state_dict["state_dict"]
-    encoder.load_state_dict(state_dict, strict=False)
+    incompatible = encoder.load_state_dict(state_dict, strict=False)
+    missing = [key for key in incompatible.missing_keys if "pooler" not in key]
+    unexpected = [key for key in incompatible.unexpected_keys if "pooler" not in key]
+    if missing or unexpected:
+        raise BenchmarkSkipped(
+            "DNABERT2 fallback checkpoint does not match the encoder. "
+            f"Missing keys: {missing[:5]}; unexpected keys: {unexpected[:5]}"
+        )
     return encoder
 
 
@@ -776,7 +879,6 @@ def _load_dnabert2_official_encoder(
     trust_remote_code: bool,
     local_files_only: bool,
 ) -> Any:
-    """Load DNABERT2 with the simple path documented on its model card."""
     from transformers import AutoModel
 
     try:
@@ -801,7 +903,6 @@ def _load_dnabert2_encoder_from_sequence_classifier(
     trust_remote_code: bool,
     local_files_only: bool,
 ) -> Any:
-    """Load DNABERT2 through the sequence-classification path used upstream."""
     from transformers import AutoModelForSequenceClassification
 
     model = AutoModelForSequenceClassification.from_pretrained(
@@ -828,6 +929,7 @@ def _extract_embeddings(
     device: Any,
     torch: Any,
     batch_size: int,
+    precision: str = "float32",
 ) -> Any:
     pooled_batches = []
     total = int(encoded.input_ids.shape[0])
@@ -839,9 +941,10 @@ def _extract_embeddings(
                 "input_ids": _tensor_to_device(encoded.input_ids[start:stop], device),
                 "attention_mask": _tensor_to_device(encoded.attention_mask[start:stop], device),
             }
-            outputs = encoder(**batch)
-            pooled = _pool_hidden_states(_last_hidden_state(outputs), batch["attention_mask"], pooling)
-            pooled_batches.append(pooled.detach().cpu())
+            with _autocast_context(torch, device, precision):
+                outputs = encoder(**batch)
+                pooled = _pool_hidden_states(_last_hidden_state(outputs), batch["attention_mask"], pooling)
+            pooled_batches.append(pooled.float().detach().cpu())
     return torch.cat(pooled_batches, dim=0)
 
 
@@ -854,19 +957,32 @@ def _last_hidden_state(outputs: Any) -> Any:
 
 
 def _pool_hidden_states(hidden: Any, attention_mask: Any, pooling: str) -> Any:
+    pooling = str(pooling).lower()
     if pooling == "cls":
         return hidden[:, 0, :]
+    if pooling != "mean":
+        raise ValueError(f"DNABERT2 only supports pooling='mean' or 'cls'; got {pooling!r}")
     mask = attention_mask.unsqueeze(-1).to(hidden.dtype)
     return (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp_min(1.0)
 
 
-def _predict_from_embeddings(classifier: Any, embeddings: Any, labels: Any, criterion: Any, device: Any, torch: Any) -> dict[str, Any]:
+def _predict_from_embeddings(
+    classifier: Any,
+    embeddings: Any,
+    labels: Any,
+    criterion: Any,
+    device: Any,
+    torch: Any,
+    *,
+    precision: str = "float32",
+) -> dict[str, Any]:
     classifier.eval()
     with torch.no_grad():
-        logits = classifier(embeddings.to(device)).squeeze(-1)
         target = _tensor_to_device(labels, device)
-        loss = criterion(logits, target)
-        probs = torch.sigmoid(logits)
+        with _autocast_context(torch, device, precision):
+            logits = classifier(embeddings.to(device)).squeeze(-1)
+            loss = criterion(logits, target)
+            probs = torch.sigmoid(logits)
     return {
         "label": labels.detach().cpu().numpy().astype(int),
         "probability": probs.detach().cpu().numpy().astype(float),
@@ -909,10 +1025,12 @@ def _run_epoch(
         input_ids = _tensor_to_device(input_ids, device)
         attention_mask = _tensor_to_device(attention_mask, device)
         labels = _tensor_to_device(labels, device)
+        window_start = ((batch_index - 1) // accumulation) * accumulation + 1
+        window_size = min(accumulation, len(loader) - window_start + 1)
         with _autocast_context(torch, device, precision):
             logits = model(input_ids, attention_mask)
             raw_loss = criterion(logits, labels)
-            loss = raw_loss / accumulation
+            loss = raw_loss / window_size
         if scaler is None:
             loss.backward()
         else:
@@ -969,9 +1087,13 @@ def _predict(
 
 
 def _autocast_context(torch: Any, device: Any, precision: str) -> Any:
-    if getattr(device, "type", None) != "cuda":
-        return nullcontext()
     normalized = str(precision).lower()
+    if getattr(device, "type", None) != "cuda":
+        if normalized in {"bf16", "bfloat16", "fp16", "float16"}:
+            raise ValueError(
+                f"DNABERT2 precision={precision!r} requires CUDA; use environment.precision='float32' on CPU."
+            )
+        return nullcontext()
     if normalized in {"bf16", "bfloat16"}:
         return torch.autocast(device_type="cuda", dtype=torch.bfloat16)
     if normalized in {"fp16", "float16"}:

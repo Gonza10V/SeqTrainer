@@ -1,15 +1,13 @@
-"""Configuration contract for reproducible promoter benchmarks."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
-try:  # Python 3.11+
+try:
     import tomllib
-except ModuleNotFoundError:  # pragma: no cover - exercised on Python <3.11
-    import tomli as tomllib  # type: ignore[no-redef]
+except ModuleNotFoundError:
+    import tomli as tomllib
 
 
 REQUIRED_CLASSIFICATION_METRICS = {
@@ -26,17 +24,10 @@ REQUIRED_CLASSIFICATION_METRICS = {
 }
 
 _ALLOWED_MODEL_FAMILIES = {"cnn", "dnabert2", "ipromp"}
-_ALLOWED_DATASET_FORMATS = {"csv", "sbol", "fasta", "materialized_csv"}
+_ALLOWED_DATASET_FORMATS = {"csv", "materialized_csv"}
 _ALLOWED_LABEL_SOURCES = {
     "provided_binary",
     "curated_binary",
-    "numeric_target_threshold",
-}
-_ALLOWED_SPLIT_STRATEGIES = {
-    "predefined",
-    "train_val_test",
-    "k_fold",
-    "stratified_group_k_fold",
 }
 _ALLOWED_THRESHOLD_STRATEGIES = {
     "validation_mcc",
@@ -48,7 +39,7 @@ _ALLOWED_THRESHOLD_STRATEGIES = {
 
 
 class ConfigValidationError(ValueError):
-    """Raised when a benchmark configuration does not satisfy the contract."""
+    pass
 
 
 @dataclass(frozen=True)
@@ -69,7 +60,6 @@ class DatasetConfig:
     source_url: str = ""
     version: str = ""
     id_field: Optional[str] = None
-    group_field: Optional[str] = None
     split_files: Mapping[str, str] = field(default_factory=dict)
     params: Mapping[str, Any] = field(default_factory=dict)
 
@@ -79,20 +69,12 @@ class LabelConfig:
     source: str
     positive_label: Any = 1
     negative_label: Any = 0
-    target_field: Optional[str] = None
-    threshold_strategy: Optional[str] = None
-    threshold_value: Optional[float] = None
 
 
 @dataclass(frozen=True)
 class SplitConfig:
     strategy: str
     seed: int
-    train_size: Optional[float] = None
-    validation_size: Optional[float] = None
-    test_size: Optional[float] = None
-    n_splits: Optional[int] = None
-    group_field: Optional[str] = None
     validation_name: str = "validation"
 
 
@@ -158,7 +140,6 @@ class BenchmarkConfig:
 
 
 def load_benchmark_config(path: str | Path) -> BenchmarkConfig:
-    """Load and validate a benchmark TOML configuration."""
     config_path = Path(path)
     with config_path.open("rb") as handle:
         raw = tomllib.load(handle)
@@ -166,7 +147,6 @@ def load_benchmark_config(path: str | Path) -> BenchmarkConfig:
 
 
 def parse_benchmark_config(raw: Mapping[str, Any], source: str = "<memory>") -> BenchmarkConfig:
-    """Parse a raw mapping into the typed benchmark configuration."""
     _require_sections(
         raw,
         (
@@ -210,7 +190,6 @@ def parse_benchmark_config(raw: Mapping[str, Any], source: str = "<memory>") -> 
             source_url=str(dataset_raw.get("source_url", "")),
             version=str(dataset_raw.get("version", "")),
             id_field=_optional_str(dataset_raw.get("id_field")),
-            group_field=_optional_str(dataset_raw.get("group_field")),
             split_files=_string_mapping(dataset_raw.get("split_files", {}), "dataset.split_files", source),
             params=_mapping(dataset_raw.get("params", {}), "dataset.params", source),
         ),
@@ -218,18 +197,10 @@ def parse_benchmark_config(raw: Mapping[str, Any], source: str = "<memory>") -> 
             source=_required_str(label_raw, "label.source", source),
             positive_label=label_raw.get("positive_label", 1),
             negative_label=label_raw.get("negative_label", 0),
-            target_field=_optional_str(label_raw.get("target_field")),
-            threshold_strategy=_optional_str(label_raw.get("threshold_strategy")),
-            threshold_value=_optional_float(label_raw.get("threshold_value"), "label.threshold_value", source),
         ),
         split=SplitConfig(
             strategy=_required_str(split_raw, "split.strategy", source),
             seed=_required_int(split_raw, "split.seed", source),
-            train_size=_optional_float(split_raw.get("train_size"), "split.train_size", source),
-            validation_size=_optional_float(split_raw.get("validation_size"), "split.validation_size", source),
-            test_size=_optional_float(split_raw.get("test_size"), "split.test_size", source),
-            n_splits=_optional_int(split_raw.get("n_splits"), "split.n_splits", source),
-            group_field=_optional_str(split_raw.get("group_field")),
             validation_name=str(split_raw.get("validation_name", "validation")),
         ),
         preprocessing=PreprocessingConfig(
@@ -280,7 +251,6 @@ def parse_benchmark_config(raw: Mapping[str, Any], source: str = "<memory>") -> 
 def _validate_config(config: BenchmarkConfig, source: str) -> None:
     _validate_allowed(config.dataset.format, _ALLOWED_DATASET_FORMATS, "dataset.format", source)
     _validate_allowed(config.label.source, _ALLOWED_LABEL_SOURCES, "label.source", source)
-    _validate_allowed(config.split.strategy, _ALLOWED_SPLIT_STRATEGIES, "split.strategy", source)
     _validate_allowed(config.model.family, _ALLOWED_MODEL_FAMILIES, "model.family", source)
     _validate_allowed(
         config.evaluation.threshold_strategy,
@@ -303,37 +273,44 @@ def _validate_config(config: BenchmarkConfig, source: str) -> None:
                 f"{sorted(required)}; missing {sorted(missing)}"
             )
 
-    if config.split.strategy == "train_val_test":
-        sizes = (config.split.train_size, config.split.validation_size, config.split.test_size)
-        if any(size is None for size in sizes):
-            raise ConfigValidationError(
-                f"{source}: split.strategy='train_val_test' requires split.train_size, "
-                "split.validation_size, and split.test_size"
-            )
-        if round(sum(size for size in sizes if size is not None), 7) != 1.0:
-            raise ConfigValidationError(f"{source}: train/validation/test split sizes must sum to 1.0")
+    if config.split.strategy != "predefined":
+        raise ConfigValidationError(
+            f"{source}: split.strategy={config.split.strategy!r} is not implemented by the benchmark runners; "
+            "use split.strategy='predefined' with train/validation/test CSV files."
+        )
 
-    if config.split.strategy in {"k_fold", "stratified_group_k_fold"}:
-        if config.split.n_splits is None or config.split.n_splits < 2:
+    if config.model.family == "cnn" and not config.preprocessing.pad_or_trim:
+        raise ConfigValidationError(
+            f"{source}: CNN benchmarks require preprocessing.pad_or_trim=true"
+        )
+
+    if config.model.family == "cnn":
+        loss = str(config.training.params.get("loss", "cross_entropy")).lower()
+        if loss != "cross_entropy":
             raise ConfigValidationError(
-                f"{source}: split.strategy='{config.split.strategy}' requires split.n_splits >= 2"
+                f"{source}: CNN benchmarks only implement training.params.loss='cross_entropy'; "
+                f"got {loss!r}"
+            )
+        precision = str(config.environment.precision).lower()
+        if precision not in {"float32", "fp32"}:
+            raise ConfigValidationError(
+                f"{source}: CNN benchmarks only implement environment.precision='float32'; "
+                f"got {config.environment.precision!r}"
             )
 
-    if config.split.strategy == "stratified_group_k_fold":
-        group_field = config.split.group_field or config.dataset.group_field
-        if not group_field:
+    if config.model.family == "dnabert2":
+        pooling = str(config.model.params.get("pooling", "mean")).lower()
+        if pooling not in {"mean", "cls"}:
             raise ConfigValidationError(
-                f"{source}: stratified_group_k_fold requires split.group_field or dataset.group_field"
+                f"{source}: DNABERT2 only implements model.params.pooling='mean' or 'cls'; "
+                f"got {pooling!r}"
             )
-
-    if config.label.source == "numeric_target_threshold":
-        if not config.label.target_field:
+        mode = str(config.model.params.get("mode", "frozen_embedding_classifier")).lower()
+        precision = str(config.environment.precision).lower()
+        if mode == "frozen_embedding_classifier" and precision in {"fp16", "float16"}:
             raise ConfigValidationError(
-                f"{source}: label.source='numeric_target_threshold' requires label.target_field"
-            )
-        if not config.label.threshold_strategy and config.label.threshold_value is None:
-            raise ConfigValidationError(
-                f"{source}: numeric target labels require label.threshold_strategy or label.threshold_value"
+                f"{source}: frozen DNABERT2 classifier does not implement fp16 gradient scaling; "
+                "use environment.precision='float32' or 'bf16'."
             )
 
     missing_metrics = REQUIRED_CLASSIFICATION_METRICS.difference(config.evaluation.metrics)

@@ -19,7 +19,15 @@ from seqtrainer.benchmarks import (
     threshold_metric_from_strategy,
     write_benchmark_outputs,
 )
+from seqtrainer.adapters.ipromp import (
+    build_ipromp_mapping,
+    normalize_ipromp_predictions,
+    _normalize_official_predictions,
+    write_ipromp_fastas,
+    write_ipromp_run_commands,
+)
 from seqtrainer.cli.main import main
+from seqtrainer.benchmarks.runner import BenchmarkSkipped
 from seqtrainer.metrics import best_threshold_by_metric, binary_classification_metrics
 
 
@@ -76,9 +84,14 @@ def test_predefined_split_loader_and_summary(tmp_path):
         "validation": "eval_EP_DNA_BERT2_genomic_order.csv",
         "test": "test_EP_DNA_BERT2_genomic_order.csv",
     }.items():
+        sequences = {
+            "train": ["ACGT", "TGCA", "AAAA"],
+            "validation": ["CCCC", "GGGG", "TTTT"],
+            "test": ["ACAC", "GTGT", "AGAG"],
+        }[split]
         pd.DataFrame(
             {
-                "sequence": ["ACGT", "TGCA", "AAAA"],
+                "sequence": sequences,
                 "label": [0, 1, 1],
                 "split_name": split,
             }
@@ -151,24 +164,34 @@ def test_benchmark_artifact_writers_create_json_and_csv(tmp_path):
     assert metrics_csv.loc[0, "split"] == "validation"
 
 
-def test_benchmark_manifest_cli_writes_shared_manifest(tmp_path, capsys):
+def test_benchmark_manifest_cli_writes_shared_manifest(tmp_path, capsys, monkeypatch):
+    import seqtrainer.benchmarks as benchmarks
+
+    manifest_capture = {}
+    original_build_run_manifest = benchmarks.build_run_manifest
+
+    def record_repo_dir(*args, **kwargs):
+        manifest_capture["repo_dir"] = kwargs.get("repo_dir")
+        return original_build_run_manifest(*args, **kwargs)
+
+    monkeypatch.setattr(benchmarks, "build_run_manifest", record_repo_dir)
     split_dir = tmp_path / "data" / "promoter_classification"
     split_dir.mkdir(parents=True)
-    for filename in (
-        "train_EP_DNA_BERT2_genomic_order.csv",
-        "eval_EP_DNA_BERT2_genomic_order.csv",
-        "test_EP_DNA_BERT2_genomic_order.csv",
-    ):
-        pd.DataFrame({"sequence": ["ACGT", "TGCA"], "label": [0, 1]}).to_csv(
-            split_dir / filename,
-            index=False,
-        )
+    split_sequences = {
+        "train_EP_DNA_BERT2_genomic_order.csv": ["ACGT", "TGCA"],
+        "eval_EP_DNA_BERT2_genomic_order.csv": ["CCCC", "GGGG"],
+        "test_EP_DNA_BERT2_genomic_order.csv": ["ACAC", "GTGT"],
+    }
+    for filename, sequences in split_sequences.items():
+        pd.DataFrame(
+            {"sequence": sequences, "label": [0, 1]}
+        ).to_csv(split_dir / filename, index=False)
 
     output_dir = tmp_path / "manifest_run"
     exit_code = main(
         [
-            "benchmark-manifest",
-            "--config",
+            "benchmark",
+            "manifest",
             str(CONFIG_DIR / "cnn.toml"),
             "--base-dir",
             str(tmp_path),
@@ -182,18 +205,53 @@ def test_benchmark_manifest_cli_writes_shared_manifest(tmp_path, capsys):
     assert "train: rows=2" in captured.out
     assert (output_dir / "manifest.json").exists()
     assert (output_dir / "config.json").exists()
+    assert manifest_capture["repo_dir"] == tmp_path
+
+
+def test_artifact_save_flags_are_honored(tmp_path):
+    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
+    config = replace(
+        config,
+        outputs=replace(
+            config.outputs,
+            save_json=False,
+            save_csv=False,
+            save_predictions=False,
+        ),
+    )
+    manifest = build_run_manifest(config, threshold=0.5)
+    written = write_benchmark_outputs(
+        tmp_path,
+        manifest=manifest,
+        metrics={"validation": {"mcc": 0.0}},
+        predictions=pd.DataFrame({"split": ["validation"], "probability": [0.5]}),
+        history=pd.DataFrame({"epoch": [1]}),
+        config=config,
+    )
+
+    assert set(written) == {"manifest"}
+    assert (tmp_path / "manifest.json").exists()
+    assert not (tmp_path / "config.json").exists()
+    assert not (tmp_path / "metrics.json").exists()
+    assert not (tmp_path / "metrics.csv").exists()
+    assert not (tmp_path / "predictions.csv").exists()
+    assert not (tmp_path / "history.csv").exists()
 
 
 def test_benchmark_run_cli_runs_cnn_and_writes_common_outputs(tmp_path, capsys):
     split_dir = tmp_path / "data" / "promoter_classification"
     split_dir.mkdir(parents=True)
-    sequences = ["ACGTACGT", "TGCATGCA", "AAAACCCC", "GGGGTTTT"]
+    sequences_by_split = {
+        "train": ["ACGTACGT", "TGCATGCA", "AAAACCCC", "GGGGTTTT"],
+        "validation": ["CCCCCCCC", "GGGGGGGG", "TATATATA", "CGCGCGCG"],
+        "test": ["ACACACAC", "GTGTGTGT", "AGAGAGAG", "CTCTCTCT"],
+    }
     for split, filename in {
         "train": "train.csv",
         "validation": "validation.csv",
         "test": "test.csv",
     }.items():
-        pd.DataFrame({"sequence": sequences, "label": [0, 1, 0, 1]}).to_csv(
+        pd.DataFrame({"sequence": sequences_by_split[split], "label": [0, 1, 0, 1]}).to_csv(
             split_dir / filename,
             index=False,
         )
@@ -293,15 +351,15 @@ def test_dnabert2_benchmark_gracefully_skips_without_local_model_files(tmp_path)
 
 
 def test_dnabert2_pad_token_patch_defaults_to_tokenizer_or_zero():
-    from seqtrainer.torch.dnabert2_benchmark import _ensure_pad_token_id
+    from seqtrainer.torch.dnabert2_benchmark import _safe_pad_token_id, _set_pad_token_id
 
     config = SimpleNamespace()
     tokenizer = SimpleNamespace(pad_token_id=None)
-    _ensure_pad_token_id(config, tokenizer)
+    _set_pad_token_id(config, _safe_pad_token_id(tokenizer))
     assert config.pad_token_id == 0
 
     tokenizer.pad_token_id = 7
-    _ensure_pad_token_id(config, tokenizer)
+    _set_pad_token_id(config, _safe_pad_token_id(tokenizer))
     assert config.pad_token_id == 7
 
 
@@ -472,24 +530,79 @@ def test_dnabert2_loader_skips_when_state_dict_fallback_still_has_meta_params(mo
         )
 
 
-def test_dnabert2_tokenization_pipeline_uses_shared_splits_and_metadata(tmp_path):
+def test_dnabert2_tokenization_pipeline_uses_shared_splits_and_metadata(tmp_path, monkeypatch):
     config = load_benchmark_config(CONFIG_DIR / "dnabert2_smoke.toml")
+    config = replace(config, model=replace(config.model, params={**config.model.params, "revision": "pinned-revision"}))
     _write_configured_split_files(config, tmp_path)
+    captured = {}
+
+    def from_pretrained(model_name, **kwargs):
+        captured.update(kwargs)
+        return _StubTokenizer()
+
+    fake_transformers = types.ModuleType("transformers")
+    fake_transformers.AutoTokenizer = types.SimpleNamespace(from_pretrained=from_pretrained)
+    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
 
     result = prepare_dnabert2_tokenized_splits(
         config,
         base_dir=tmp_path,
         output_dir=tmp_path / "dnabert2_tokens",
-        tokenizer=_StubTokenizer(),
     )
 
     assert result.metadata_path.exists()
+    assert captured["revision"] == "pinned-revision"
+    assert result.metadata["revision"] == "pinned-revision"
     assert result.metadata["model_name"] == "zhihan1996/DNABERT-2-117M"
     assert result.metadata["max_length"] == 104
     assert set(result.tokenized_paths) == {"train", "validation", "test"}
     tokenized = pd.read_csv(result.tokenized_paths["train"])
     assert {"input_ids", "attention_mask", "token_count", "label"}.issubset(tokenized.columns)
     assert len(tokenized) == 4
+
+
+def test_dnabert2_tokenization_only_mode_never_reports_classifier_metrics(tmp_path):
+    pytest.importorskip("torch")
+    from seqtrainer.torch.dnabert2_benchmark import run_dnabert2_csv_splits
+
+    config = load_benchmark_config(CONFIG_DIR / "dnabert2_smoke.toml")
+    _write_configured_split_files(config, tmp_path)
+
+    with pytest.raises(BenchmarkSkipped, match="tokenization_only"):
+        run_dnabert2_csv_splits(
+            config,
+            base_dir=tmp_path,
+            output_dir=tmp_path / "dnabert2_smoke_run",
+        )
+
+
+def test_dnabert2_unknown_mode_is_rejected_before_model_loading(tmp_path):
+    pytest.importorskip("torch")
+    from seqtrainer.torch.dnabert2_benchmark import run_dnabert2_csv_splits
+
+    config = load_benchmark_config(CONFIG_DIR / "dnabert2_frozen.toml")
+    _write_configured_split_files(config, tmp_path)
+    config = replace(
+        config,
+        model=replace(config.model, params={**dict(config.model.params), "mode": "full_finetuning"}),
+    )
+
+    with pytest.raises(ValueError, match="Unsupported DNABERT2 model.params.mode"):
+        run_dnabert2_csv_splits(config, base_dir=tmp_path, output_dir=tmp_path / "dnabert2_bad_mode")
+
+
+def test_dnabert2_data_loading_errors_are_not_silently_skipped(tmp_path):
+    config = load_benchmark_config(CONFIG_DIR / "dnabert2_frozen.toml")
+
+    with pytest.raises(FileNotFoundError):
+        run_benchmark(config, base_dir=tmp_path, output_dir=tmp_path / "dnabert2_missing_data")
+
+
+def test_ipromp_data_loading_errors_are_not_silently_skipped(tmp_path):
+    config = load_benchmark_config(CONFIG_DIR / "ipromp_external.toml")
+
+    with pytest.raises(FileNotFoundError):
+        run_benchmark(config, base_dir=tmp_path, output_dir=tmp_path / "ipromp_missing_data")
 
 
 def test_dnabert2_frozen_embedding_baseline_uses_encoder_and_caches_embeddings(tmp_path):
@@ -502,6 +615,7 @@ def test_dnabert2_frozen_embedding_baseline_uses_encoder_and_caches_embeddings(t
         config,
         training=replace(config.training, max_epochs=2, batch_size=2, learning_rate=0.01),
         model=replace(config.model, params={**dict(config.model.params), "classifier_dropout": 0.0}),
+        environment=replace(config.environment, precision="float32"),
     )
 
     result = run_dnabert2_csv_splits(
@@ -521,6 +635,32 @@ def test_dnabert2_frozen_embedding_baseline_uses_encoder_and_caches_embeddings(t
     assert result.manifest["model"]["metadata"]["embedding_cache_dir"]
 
 
+def test_dnabert2_frozen_embedding_baseline_honors_zero_epochs(tmp_path):
+    torch = pytest.importorskip("torch")
+    from seqtrainer.torch.dnabert2_benchmark import run_dnabert2_csv_splits
+
+    config = load_benchmark_config(CONFIG_DIR / "dnabert2_frozen.toml")
+    _write_configured_split_files(config, tmp_path)
+    config = replace(
+        config,
+        training=replace(config.training, max_epochs=0, batch_size=2, learning_rate=0.01),
+        model=replace(config.model, params={**dict(config.model.params), "classifier_dropout": 0.0}),
+        environment=replace(config.environment, precision="float32"),
+    )
+
+    result = run_dnabert2_csv_splits(
+        config,
+        base_dir=tmp_path,
+        output_dir=tmp_path / "dnabert2_zero_epochs",
+        tokenizer=_TorchStubTokenizer(torch),
+        encoder=_TinyEncoder(torch),
+    )
+
+    assert result.status == "completed"
+    assert (tmp_path / "dnabert2_zero_epochs" / "history.csv").read_text().strip() == ""
+    assert result.manifest["model"]["metadata"]["checkpoint"].endswith("best_model.pt")
+
+
 def test_ipromp_benchmark_writes_fastas_and_skipped_manifest(tmp_path):
     config = load_benchmark_config(CONFIG_DIR / "ipromp_external.toml")
     _write_configured_split_files(config, tmp_path)
@@ -535,7 +675,7 @@ def test_ipromp_benchmark_writes_fastas_and_skipped_manifest(tmp_path):
     assert (tmp_path / "ipromp" / "external_prediction_schema.md").exists()
     assert "FASTA prepared" in result.manifest["extra"]["skip_reason"]
     fasta_text = (tmp_path / "ipromp" / "ipromp_fasta" / "validation.fasta").read_text()
-    assert ">seqtrainer|split=validation|row_index=0|sequence_id=validation_000000|label=0" in fasta_text
+    assert ">seqtrainer|split=validation|row_index=0|sequence_id=url:validation_000000|label=0" in fasta_text
 
 
 def test_prepare_ipromp_cli_writes_mapping_and_command_script(tmp_path, capsys):
@@ -570,7 +710,7 @@ def test_ipromp_fasta_writer_rejects_invalid_bases(tmp_path):
     for split, relative_path in config.dataset.split_files.items():
         path = tmp_path / relative_path
         path.parent.mkdir(parents=True, exist_ok=True)
-        sequence = "ACGTXB" if split == "validation" else "ACGTACGT"
+        sequence = {"train": "ACGTACGT", "validation": "ACGTXB", "test": "TGCATGCA"}[split]
         pd.DataFrame(
             {
                 config.dataset.sequence_field: [sequence],
@@ -734,15 +874,15 @@ def test_ipromp_official_predictions_are_normalized_with_mapping(tmp_path):
 
 def test_ipromp_official_predictions_fail_on_duplicate_sequence_ambiguity(tmp_path):
     config = load_benchmark_config(CONFIG_DIR / "ipromp_external.toml")
+    _write_configured_split_files(config, tmp_path)
     for split, relative_path in config.dataset.split_files.items():
         path = tmp_path / relative_path
         path.parent.mkdir(parents=True, exist_ok=True)
-        pd.DataFrame(
-            {
-                config.dataset.sequence_field: ["ACGTACGT", "ACGTACGT", "AAAACCCC", "GGGGTTTT"],
-                config.dataset.label_field: [0, 1, 0, 1],
-            }
-        ).to_csv(path, index=False)
+        frame = pd.read_csv(path)
+        frame.loc[1, [config.dataset.sequence_field, config.dataset.label_field]] = frame.loc[
+            0, [config.dataset.sequence_field, config.dataset.label_field]
+        ].to_numpy()
+        frame.to_csv(path, index=False)
     main(
         [
             "benchmark",
@@ -781,8 +921,96 @@ def test_ipromp_official_predictions_fail_on_duplicate_sequence_ambiguity(tmp_pa
         run_benchmark(config_with_predictions, base_dir=tmp_path, output_dir=tmp_path / "ipromp", allow_skip=False)
 
 
+def test_ipromp_normalized_predictions_reject_incomplete_sequence_ids(tmp_path):
+    config = load_benchmark_config(CONFIG_DIR / "ipromp_external.toml")
+    _write_configured_split_files(config, tmp_path)
+    prep = main(
+        [
+            "benchmark",
+            "prepare-ipromp",
+            str(CONFIG_DIR / "ipromp_external.toml"),
+            "--base-dir",
+            str(tmp_path),
+            "--output-dir",
+            str(tmp_path / "ipromp"),
+        ]
+    )
+    assert prep == 0
+    mapping = pd.read_csv(tmp_path / "ipromp" / "ipromp_id_mapping.csv")
+    predictions = mapping[["split", "sequence_id", "label"]].copy()
+    predictions["probability"] = predictions["label"].astype(float)
+    predictions = predictions.drop(predictions.index[0])
+    predictions_path = tmp_path / "incomplete_predictions.csv"
+    predictions.to_csv(predictions_path, index=False)
+    config_with_predictions = replace(
+        config,
+        model=replace(
+            config.model,
+            params={**dict(config.model.params), "predictions_csv": str(predictions_path)},
+        ),
+    )
+
+    with pytest.raises(ValueError, match="exactly one row"):
+        run_benchmark(config_with_predictions, base_dir=tmp_path, output_dir=tmp_path / "ipromp", allow_skip=False)
+
+
+def test_ipromp_official_hard_labels_are_evaluated_without_probability(tmp_path):
+    config = load_benchmark_config(CONFIG_DIR / "ipromp_external.toml")
+    config = replace(
+        config,
+        model=replace(config.model, params={**config.model.params, "requires_probability_for_primary_comparison": False}),
+    )
+    _write_configured_split_files(config, tmp_path)
+    prep = main(
+        [
+            "benchmark",
+            "prepare-ipromp",
+            str(CONFIG_DIR / "ipromp_external.toml"),
+            "--base-dir",
+            str(tmp_path),
+            "--output-dir",
+            str(tmp_path / "ipromp"),
+        ]
+    )
+    assert prep == 0
+    mapping = pd.read_csv(tmp_path / "ipromp" / "ipromp_id_mapping.csv")
+    external_dir = tmp_path / "ipromp" / "external_predictions"
+    external_dir.mkdir(exist_ok=True)
+    for split in ("validation", "test"):
+        split_mapping = mapping[mapping["split"] == split]
+        pd.DataFrame(
+            {
+                "Sequence": split_mapping["sequence"],
+                "Prediction": split_mapping["label"],
+            }
+        ).to_csv(external_dir / f"{split}_predictions.csv", index=False)
+    config_with_predictions = replace(
+        config,
+        model=replace(
+            config.model,
+            params={
+                **dict(config.model.params),
+                "mapping_csv": str(tmp_path / "ipromp" / "ipromp_id_mapping.csv"),
+                "validation_predictions_csv": str(external_dir / "validation_predictions.csv"),
+                "test_predictions_csv": str(external_dir / "test_predictions.csv"),
+            },
+        ),
+    )
+
+    result = run_benchmark(config_with_predictions, base_dir=tmp_path, output_dir=tmp_path / "ipromp_hard_official")
+
+    assert result.status == "completed"
+    assert result.metrics["test"]["mcc"] == 1.0
+    assert result.metrics["test"]["auroc"] is None
+    assert result.metrics["test"]["auprc"] is None
+
+
 def test_ipromp_external_hard_labels_are_evaluated_without_faking_rank_metrics(tmp_path):
     config = load_benchmark_config(CONFIG_DIR / "ipromp_external.toml")
+    config = replace(
+        config,
+        model=replace(config.model, params={**config.model.params, "requires_probability_for_primary_comparison": False}),
+    )
     _write_configured_split_files(config, tmp_path)
     predictions_path = tmp_path / "ipromp_predictions.tsv"
     rows = []
@@ -823,7 +1051,10 @@ def test_benchmark_compare_cli_and_helper_rank_test_metrics(tmp_path, capsys):
     for out_dir, mcc, auprc in ((first, 0.2, 0.6), (second, 0.8, 0.9)):
         manifest = build_run_manifest(
             config,
-            split_summary={"test": {"rows": 2, "class_counts": {"0": 1, "1": 1}}},
+            split_summary={
+                split: {"rows": 2, "class_counts": {"0": 1, "1": 1}, "content_sha256": split}
+                for split in ("train", "validation", "test")
+            },
             threshold=0.5,
         )
         metrics = {
@@ -854,6 +1085,41 @@ def test_benchmark_compare_cli_and_helper_rank_test_metrics(tmp_path, capsys):
     assert exit_code == 0
     assert "comparison_summary" in captured.out
     assert (tmp_path / "comparison_cli" / "comparison_summary.md").exists()
+
+
+def test_benchmark_compare_ignores_skipped_artifact_with_stale_metrics(tmp_path):
+    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
+    skipped_config = replace(
+        config,
+        dataset=replace(config.dataset, name="different_dataset"),
+    )
+    completed = tmp_path / "completed"
+    skipped = tmp_path / "skipped"
+
+    for out_dir, current_config, status, mcc in (
+        (completed, config, "completed", 0.8),
+        (skipped, skipped_config, "skipped", 0.99),
+    ):
+        manifest = build_run_manifest(
+            current_config,
+            split_summary={
+                split: {"rows": 2, "class_counts": {"0": 1, "1": 1}, "content_sha256": split}
+                for split in ("train", "validation", "test")
+            },
+            threshold=0.5,
+            extra={"status": status},
+        )
+        write_benchmark_outputs(
+            out_dir,
+            manifest=manifest,
+            metrics={"test": {"mcc": mcc, "auprc": mcc, "accuracy": mcc}},
+            config=current_config,
+        )
+
+    comparison = pd.read_csv(
+        compare_benchmark_outputs([skipped, completed], output_dir=tmp_path / "comparison")["comparison_metrics"]
+    )
+    assert set(comparison["artifact_dir"]) == {str(completed)}
 
 
 def test_imbalance_policy_uses_training_split_only():
@@ -888,68 +1154,18 @@ def test_threshold_metric_from_strategy_maps_validation_strategies():
     assert threshold_metric_from_strategy("fixed_0_5") is None
 
 
-def test_ai_x_bio_fasta_parsing_and_source_split_preservation(tmp_path):
-    from seqtrainer.benchmarks.ai_x_bio import prepare_ai_x_bio_splits
-
-    source = tmp_path / "ai x bio.fasta"
-    source.write_text(
-        "\n".join(
-            [
-                ">seq1 label=promoter split=train",
-                "acgu",
-                ">seq2 label=negative split=train",
-                "ttxx",
-                ">seq3 label=1 split=validation",
-                "cccc",
-                ">seq4 label=0 split=validation",
-                "gggg",
-                ">seq5 label=positive split=test",
-                "aaaa",
-                ">seq6 label=non-promoter split=test",
-                "nnnn",
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    result = prepare_ai_x_bio_splits(source_file=source, output_dir=tmp_path / "prepared")
-
-    assert result.metadata["source_format"] == "fasta"
-    assert result.metadata["split_strategy"] == "preserved_source_split"
-    train = pd.read_csv(result.split_paths["train"])
-    assert list(train.columns) == ["sequence", "label", "id"]
-    assert train.loc[0, "sequence"] == "ACGT"
-    assert train["label"].tolist() == [1, 0]
-
-
-def test_ai_x_bio_stratified_split_creation_and_schema(tmp_path):
-    from seqtrainer.benchmarks.ai_x_bio import prepare_ai_x_bio_splits
-
-    source = tmp_path / "ai x bio.csv"
-    pd.DataFrame(
-        {
-            "seq": ["ACGT", "TGCA", "AAAA", "CCCC", "GGGG", "TTTT", "ACAC", "GTGT", "CACA", "TGTG"],
-            "class": [0, 1, 0, 1, 0, 1, 0, 1, 0, 1],
-        }
-    ).to_csv(source, index=False)
-
-    result = prepare_ai_x_bio_splits(source_file=source, output_dir=tmp_path / "prepared", seed=42)
-
-    assert result.metadata["split_strategy"] == "seeded_stratified_70_15_15"
-    for split in ("train", "validation", "test"):
-        frame = pd.read_csv(result.split_paths[split])
-        assert list(frame.columns) == ["sequence", "label", "id"]
-        assert set(frame["label"]).issubset({0, 1})
-    assert result.metadata_path.exists()
-
-
 def _write_configured_split_files(config, base_dir):
+    sequences_by_split = {
+        "train": ["ACGTACGT", "TGCATGCA", "AAAACCCC", "GGGGTTTT"],
+        "validation": ["CCCCCCCC", "GGGGGGGG", "TATATATA", "CGCGCGCG"],
+        "test": ["ACACACAC", "GTGTGTGT", "AGAGAGAG", "CTCTCTCT"],
+    }
     for split, relative_path in config.dataset.split_files.items():
         path = base_dir / relative_path
         path.parent.mkdir(parents=True, exist_ok=True)
         pd.DataFrame(
             {
-                config.dataset.sequence_field: ["ACGTACGT", "TGCATGCA", "AAAACCCC", "GGGGTTTT"],
+                config.dataset.sequence_field: sequences_by_split[split],
                 config.dataset.label_field: [0, 1, 0, 1],
                 "split": split,
             }
@@ -1028,39 +1244,17 @@ class _TinyEncoder:
 def test_split_summary_supports_configured_string_labels(tmp_path):
     config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
     config = replace(config, label=replace(config.label, negative_label="background", positive_label="promoter"))
+    _write_configured_split_files(config, tmp_path)
     for filename in config.dataset.split_files.values():
         path = tmp_path / filename
         path.parent.mkdir(parents=True, exist_ok=True)
-        pd.DataFrame(
-            {"sequence": ["ACGT", "TGCA", "AAAA"], "label": ["background", "promoter", "promoter"]}
-        ).to_csv(path, index=False)
+        frame = pd.read_csv(path)
+        frame["label"] = ["background", "promoter", "promoter", "promoter"]
+        frame.to_csv(path, index=False)
 
     summary = summarize_split_frames(config, load_predefined_split_frames(config, base_dir=tmp_path))
 
-    assert summary["train"]["class_counts"] == {"background": 1, "promoter": 2}
-
-
-def test_direct_cnn_cli_propagates_configured_cnn_v2_params(tmp_path, monkeypatch):
-    import seqtrainer.torch.cnn_baseline as cnn_baseline
-
-    captured = {}
-
-    def fake_run(run_config):
-        captured["config"] = run_config
-        return SimpleNamespace(
-            output_dir=tmp_path,
-            metrics={},
-            manifest={"threshold_selection": {"threshold": 0.5}},
-        )
-
-    monkeypatch.setattr(cnn_baseline, "run_cnn_csv_splits", fake_run)
-
-    assert main(["run-cnn-benchmark", "--config", str(CONFIG_DIR / "cnn_v2.toml")]) == 0
-    run_config = captured["config"]
-    assert run_config.model_variant == "enhanced"
-    assert run_config.optimizer_name == "adamw"
-    assert run_config.scheduler_name == "one_cycle"
-    assert run_config.threshold_strategy == "validation_mcc"
+    assert summary["train"]["class_counts"] == {"background": 1, "promoter": 3}
 
 
 def test_cnn_runner_preserves_explicit_zero_training_values(tmp_path, monkeypatch):
@@ -1069,6 +1263,7 @@ def test_cnn_runner_preserves_explicit_zero_training_values(tmp_path, monkeypatc
 
     config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
     config = replace(config, training=replace(config.training, max_epochs=0, learning_rate=0.0))
+    _write_configured_split_files(config, tmp_path)
     captured = {}
     monkeypatch.setattr(
         benchmark_runner,
@@ -1093,35 +1288,349 @@ def test_cnn_runner_preserves_explicit_zero_training_values(tmp_path, monkeypatc
     assert captured["config"].learning_rate == 0.0
 
 
-def test_direct_cnn_cli_preserves_zero_overrides(tmp_path, monkeypatch):
-    import seqtrainer.torch.cnn_baseline as cnn_baseline
+def test_best_threshold_single_class_returns_neutral_threshold():
+    threshold, score = best_threshold_by_metric(
+        y_true=[0, 0, 0],
+        y_score=[0.1, 0.2, 0.3],
+        metric="mcc",
+    )
 
-    captured = {}
+    assert threshold == 0.5
+    assert score == 0.0
 
-    def fake_run(run_config):
-        captured["config"] = run_config
-        return SimpleNamespace(
-            output_dir=tmp_path,
-            metrics={},
-            manifest={"threshold_selection": {"threshold": 0.5}},
+
+def test_predefined_split_loader_rejects_empty_and_null_required_values(tmp_path):
+    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
+    split_dir = tmp_path / "data" / "promoter_classification"
+    split_dir.mkdir(parents=True)
+    paths = {
+        "train": "train_EP_DNA_BERT2_genomic_order.csv",
+        "validation": "eval_EP_DNA_BERT2_genomic_order.csv",
+        "test": "test_EP_DNA_BERT2_genomic_order.csv",
+    }
+    for filename in paths.values():
+        pd.DataFrame({"sequence": ["ACGT"], "label": [0]}).to_csv(
+            split_dir / filename, index=False
         )
 
-    monkeypatch.setattr(cnn_baseline, "run_cnn_csv_splits", fake_run)
+    pd.DataFrame({"sequence": [], "label": []}).to_csv(
+        split_dir / paths["validation"], index=False
+    )
+    with pytest.raises(ValueError, match="validation split must contain"):
+        load_predefined_split_frames(config, base_dir=tmp_path)
 
-    assert main(
-        [
-            "run-cnn-benchmark",
-            "--config",
-            str(CONFIG_DIR / "cnn.toml"),
-            "--seed",
-            "0",
-            "--cycles",
-            "0",
-            "--learning-rate",
-            "0",
-        ]
-    ) == 0
-    assert captured["config"].seed == 0
-    assert captured["config"].cycles == 0
-    assert captured["config"].learning_rate == 0.0
+    pd.DataFrame({"sequence": [None], "label": [0]}).to_csv(
+        split_dir / paths["validation"], index=False
+    )
+    with pytest.raises(ValueError, match="null values"):
+        load_predefined_split_frames(config, base_dir=tmp_path)
 
+
+def test_predefined_split_loader_rejects_cross_split_duplicate_sequences(tmp_path):
+    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
+    split_dir = tmp_path / "data" / "promoter_classification"
+    split_dir.mkdir(parents=True)
+    paths = {
+        "train": "train_EP_DNA_BERT2_genomic_order.csv",
+        "validation": "eval_EP_DNA_BERT2_genomic_order.csv",
+        "test": "test_EP_DNA_BERT2_genomic_order.csv",
+    }
+    for split, filename in paths.items():
+        sequence = "ACGT" if split == "train" else (" acgt " if split == "validation" else "TGCA")
+        pd.DataFrame({"sequence": [sequence], "label": [0]}).to_csv(
+            split_dir / filename,
+            index=False,
+        )
+
+    with pytest.raises(ValueError, match="duplicate normalized sequences"):
+        load_predefined_split_frames(config, base_dir=tmp_path)
+
+
+def test_predefined_split_loader_normalizes_uracil_and_rejects_conflicting_labels(tmp_path):
+    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
+    split_dir = tmp_path / "data" / "promoter_classification"
+    split_dir.mkdir(parents=True)
+    paths = {
+        "train": "train_EP_DNA_BERT2_genomic_order.csv",
+        "validation": "eval_EP_DNA_BERT2_genomic_order.csv",
+        "test": "test_EP_DNA_BERT2_genomic_order.csv",
+    }
+    for split, filename in paths.items():
+        sequence = "AUGC" if split == "train" else ("ATGC" if split == "validation" else "TGCA")
+        label = 0 if split != "validation" else 1
+        pd.DataFrame({"sequence": [sequence], "label": [label]}).to_csv(
+            split_dir / filename,
+            index=False,
+        )
+
+    with pytest.raises(ValueError, match="conflicting labels"):
+        load_predefined_split_frames(config, base_dir=tmp_path)
+
+
+def test_artifact_writer_removes_stale_disabled_outputs(tmp_path):
+    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
+    config = replace(
+        config,
+        outputs=replace(
+            config.outputs,
+            save_json=False,
+            save_csv=False,
+            save_predictions=False,
+        ),
+    )
+    for name in ("config.json", "metrics.json", "metrics.csv", "history.csv", "predictions.csv"):
+        (tmp_path / name).write_text("stale", encoding="utf-8")
+
+    write_benchmark_outputs(
+        tmp_path,
+        manifest=build_run_manifest(config, threshold=0.5),
+        metrics={"validation": {"mcc": 0.0}},
+        predictions=pd.DataFrame({"split": ["validation"], "probability": [0.5]}),
+        history=pd.DataFrame({"epoch": [1]}),
+        config=config,
+    )
+
+    assert not any(
+        (tmp_path / name).exists()
+        for name in ("config.json", "metrics.json", "metrics.csv", "history.csv", "predictions.csv")
+    )
+
+
+def test_comparison_rejects_different_split_content_digest(tmp_path):
+    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
+    metrics = {"test": {"mcc": 0.2, "auprc": 0.4, "accuracy": 0.5}}
+    split_summary = {
+        split: {"rows": 2, "class_counts": {"0": 1, "1": 1}, "content_sha256": f"{split}-a"}
+        for split in ("train", "validation", "test")
+    }
+    first_manifest = build_run_manifest(
+        config,
+        split_summary=split_summary,
+        threshold=0.5,
+        extra={"status": "completed"},
+    )
+    second_summary = {split: dict(values) for split, values in split_summary.items()}
+    second_summary["test"]["content_sha256"] = "test-b"
+    second_manifest = build_run_manifest(
+        config,
+        split_summary=second_summary,
+        threshold=0.5,
+        extra={"status": "completed"},
+    )
+
+    write_benchmark_outputs(
+        tmp_path / "first",
+        manifest=first_manifest,
+        metrics=metrics,
+        config=config,
+    )
+    write_benchmark_outputs(
+        tmp_path / "second",
+        manifest=second_manifest,
+        metrics=metrics,
+        config=config,
+    )
+
+    with pytest.raises(ValueError, match="different datasets or split files"):
+        compare_benchmark_outputs(
+            [tmp_path / "first", tmp_path / "second"],
+            output_dir=tmp_path / "comparison",
+        )
+
+
+def test_comparison_rejects_different_dataset_metadata(tmp_path):
+    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
+    other_config = replace(
+        config,
+        dataset=replace(config.dataset, name="different_dataset"),
+    )
+    metrics = {"test": {"mcc": 0.2, "auprc": 0.4, "accuracy": 0.5}}
+    for name, current_config in (("first", config), ("second", other_config)):
+        out_dir = tmp_path / name
+        write_benchmark_outputs(
+            out_dir,
+            manifest=build_run_manifest(
+                current_config,
+                split_summary={
+                    split: {"content_sha256": split}
+                    for split in ("train", "validation", "test")
+                },
+                threshold=0.5,
+                extra={"status": "completed"},
+            ),
+            metrics=metrics,
+            config=current_config,
+        )
+
+    with pytest.raises(ValueError, match="different datasets or split files"):
+        compare_benchmark_outputs(
+            [tmp_path / "first", tmp_path / "second"],
+            output_dir=tmp_path / "comparison",
+        )
+
+
+def test_comparison_rejects_artifact_without_split_content_digests(tmp_path):
+    config = load_benchmark_config(CONFIG_DIR / "cnn.toml")
+    write_benchmark_outputs(
+        tmp_path / "missing_contract",
+        manifest=build_run_manifest(config, extra={"status": "completed"}),
+        metrics={"test": {"mcc": 0.2, "auprc": 0.4, "accuracy": 0.5}},
+        config=config,
+    )
+
+    with pytest.raises(ValueError, match="usable dataset contract"):
+        compare_benchmark_outputs([tmp_path / "missing_contract"], output_dir=tmp_path / "comparison")
+
+
+def test_ipromp_mapping_rejects_duplicate_configured_ids():
+    config = load_benchmark_config(CONFIG_DIR / "ipromp_external.toml")
+    config = replace(
+        config,
+        dataset=replace(config.dataset, id_field="id"),
+    )
+    frames = {
+        split: pd.DataFrame(
+            {
+                "sequence": ["ACGT", "TGCA"],
+                "label": [0, 1],
+                "id": ["same-id", "same-id"],
+            }
+        )
+        for split in ("train", "validation", "test")
+    }
+
+    with pytest.raises(ValueError, match="duplicate split/sequence_id"):
+        build_ipromp_mapping(config, frames)
+
+
+def test_ipromp_rejects_cached_mapping_from_different_splits(tmp_path):
+    config = load_benchmark_config(CONFIG_DIR / "ipromp_external.toml")
+    original_frames = {
+        split: pd.DataFrame(
+            {"sequence": ["ACGT", "TGCA"], "label": [0, 1]}
+        )
+        for split in ("train", "validation", "test")
+    }
+    mapping_path = tmp_path / "mapping.csv"
+    build_ipromp_mapping(config, original_frames).to_csv(mapping_path, index=False)
+
+    changed_frames = {
+        split: frame.copy()
+        for split, frame in original_frames.items()
+    }
+    changed_frames["test"].loc[0, "sequence"] = "AAAA"
+    predictions = pd.DataFrame(
+        {
+            "split": [row.split for row in build_ipromp_mapping(config, original_frames).itertuples()],
+            "sequence_id": [row.sequence_id for row in build_ipromp_mapping(config, original_frames).itertuples()],
+            "probability": 0.5,
+        }
+    )
+    predictions_path = tmp_path / "predictions.csv"
+    predictions.to_csv(predictions_path, index=False)
+
+    with pytest.raises(ValueError, match="does not match"):
+        normalize_ipromp_predictions(
+            config,
+            mapping_csv=mapping_path,
+            predictions_csv=predictions_path,
+            frames=changed_frames,
+        )
+
+
+def test_ipromp_rejects_reordered_idless_labels(tmp_path):
+    config = load_benchmark_config(CONFIG_DIR / "ipromp_external.toml")
+    frames = {
+        split: pd.DataFrame(
+            {"sequence": ["ACGT", "TGCA"], "label": [0, 1]}
+        )
+        for split in ("train", "validation", "test")
+    }
+    mapping = build_ipromp_mapping(config, frames)
+    mapping_path = tmp_path / "mapping.csv"
+    mapping.to_csv(mapping_path, index=False)
+    predictions = mapping[["split", "label"]].copy()
+    validation_rows = predictions["split"] == "validation"
+    predictions.loc[validation_rows, "label"] = predictions.loc[validation_rows, "label"].iloc[::-1].to_numpy()
+    predictions["probability"] = 0.5
+    predictions_path = tmp_path / "predictions.csv"
+    predictions.to_csv(predictions_path, index=False)
+
+    with pytest.raises(ValueError, match="labels do not match"):
+        normalize_ipromp_predictions(
+            config,
+            mapping_csv=mapping_path,
+            predictions_csv=predictions_path,
+            frames=frames,
+        )
+
+
+def test_ipromp_official_predictions_with_ids_join_by_id_and_require_coverage():
+    config = load_benchmark_config(CONFIG_DIR / "ipromp_external.toml")
+    frames = {
+        split: pd.DataFrame({"sequence": ["ACGT", "TGCA"], "label": [0, 1]})
+        for split in ("train", "validation", "test")
+    }
+    mapping = build_ipromp_mapping(config, frames)
+    validation_mapping = mapping[mapping["split"] == "validation"].sort_values("row_index")
+    predictions = pd.DataFrame(
+        {
+            "Sequence": ["TGCA", "ACGT"],
+            "sequence_id": validation_mapping["sequence_id"].tolist()[::-1],
+            "Probability": [0.8, 0.2],
+        }
+    )
+
+    normalized = _normalize_official_predictions(config, predictions, mapping, "validation")
+
+    assert normalized["sequence_id"].tolist() == validation_mapping["sequence_id"].tolist()
+    assert normalized["probability"].tolist() == [0.2, 0.8]
+
+    with pytest.raises(ValueError, match="exactly one row"):
+        _normalize_official_predictions(config, predictions.iloc[:1], mapping, "validation")
+
+
+def test_ipromp_fasta_ids_are_encoded_and_command_preserves_kmer_size(tmp_path):
+    config = load_benchmark_config(CONFIG_DIR / "ipromp_external.toml")
+    config = replace(
+        config,
+        dataset=replace(config.dataset, id_field="id"),
+        preprocessing=replace(config.preprocessing, params={**config.preprocessing.params, "kmer_size": 7}),
+    )
+    frames = {
+        split: pd.DataFrame(
+            {"sequence": ["ACGT"], "label": [0], "id": ["ref|ABC"]}
+        )
+        for split in ("train", "validation", "test")
+    }
+    mapping = build_ipromp_mapping(config, frames)
+    fasta_paths = write_ipromp_fastas(config, frames, tmp_path / "fasta", mapping=mapping)
+    command_path = write_ipromp_run_commands(config, fasta_paths, tmp_path / "run")
+
+    assert "sequence_id=url:ref%7CABC|label=0" in fasta_paths["train"].read_text()
+    assert "--kmer-size 7" in command_path.read_text()
+
+
+@pytest.mark.parametrize("ids", [[1, 2], ["001", "002"]])
+def test_ipromp_mapping_round_trips_numeric_and_zero_padded_ids(tmp_path, ids):
+    config = load_benchmark_config(CONFIG_DIR / "ipromp_external.toml")
+    config = replace(config, dataset=replace(config.dataset, id_field="id"))
+    frames = {
+        split: pd.DataFrame({"sequence": ["ACGT", "TGCA"], "label": [0, 1], "id": ids})
+        for split in ("train", "validation", "test")
+    }
+    mapping = build_ipromp_mapping(config, frames)
+    mapping_path = tmp_path / "mapping.csv"
+    mapping.to_csv(mapping_path, index=False)
+    predictions = mapping[["split", "sequence_id"]].iloc[::-1].copy()
+    predictions["probability"] = mapping["label"].iloc[::-1].to_numpy(dtype=float)
+    predictions_path = tmp_path / "predictions.csv"
+    predictions.to_csv(predictions_path, index=False)
+
+    actual = normalize_ipromp_predictions(
+        config, mapping_csv=mapping_path, predictions_csv=predictions_path, frames=frames,
+    )
+    for split in ("train", "validation", "test"):
+        rows = actual[actual["split"] == split]
+        assert rows["sequence_id"].tolist() == [str(value) for value in ids]
+        assert rows["probability"].tolist() == [0.0, 1.0]

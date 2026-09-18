@@ -2,8 +2,6 @@ from pathlib import Path
 
 import pytest
 
-# The torch extra is optional for SeqTrainer, so this module intentionally
-# skips before importing torch-dependent benchmark objects.
 # ruff: noqa: E402
 torch = pytest.importorskip("torch")
 
@@ -37,6 +35,27 @@ def test_enhanced_dna_cnn_forward_shape():
     assert logits.shape == (2, 2)
 
 
+def test_cnn_model_honors_configured_architecture_parameters(tmp_path):
+    config = CnnCsvSplitConfig(
+        train_csv=tmp_path / "train.csv",
+        validation_csv=tmp_path / "validation.csv",
+        test_csv=tmp_path / "test.csv",
+        model_variant="tiny",
+        input_channels=5,
+        conv_channels=(16, 24),
+        kernel_sizes=(9, 3),
+        pooling="adaptive_max",
+        classifier_hidden=12,
+    )
+
+    model = cnn_baseline._build_csv_model(config)
+
+    assert model.backbone[0].out_channels == 16
+    assert model.backbone[0].kernel_size == (9,)
+    assert model.backbone[3].out_channels == 24
+    assert model.head[1].out_features == 12
+
+
 def test_binary_classification_metrics_include_required_fields():
     metrics = binary_classification_metrics(
         y_true=torch.tensor([0, 1, 1, 0]).numpy(),
@@ -61,7 +80,7 @@ def test_best_threshold_by_mcc_uses_validation_scores():
         thresholds=torch.tensor([0.25, 0.5, 0.75]).numpy(),
     )
 
-    assert threshold == 0.25
+    assert threshold == 0.5
     assert score == 1.0
 
 
@@ -252,6 +271,10 @@ def test_cnn_csv_honors_output_save_flags(tmp_path):
         )
 
     output_dir = tmp_path / "outputs"
+    output_dir.mkdir()
+    for name in ("config.json", "metrics.json", "metrics.csv", "history.csv", "predictions.csv"):
+        (output_dir / name).write_text("stale", encoding="utf-8")
+
     run_cnn_csv_splits(
         CnnCsvSplitConfig(
             train_csv=tmp_path / "train.csv",

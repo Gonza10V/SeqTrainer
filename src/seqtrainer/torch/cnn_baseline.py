@@ -1,7 +1,6 @@
-"""Reproducible PyTorch CNN baseline from the tutorial notebook."""
-
 from __future__ import annotations
 
+import hashlib
 import json
 import random
 from copy import deepcopy
@@ -16,7 +15,7 @@ try:
     import torch
     from torch import nn
     from torch.utils.data import DataLoader, TensorDataset
-except ModuleNotFoundError as exc:  # pragma: no cover - depends on optional extra
+except ModuleNotFoundError as exc:
     raise ModuleNotFoundError(
         "The CNN baseline requires PyTorch. Install with `pip install -e '.[torch]'` "
         "or install torch in your notebook/Colab environment."
@@ -30,8 +29,6 @@ from seqtrainer.transforms.dna import one_hot_encode, pad_or_trim
 
 @dataclass(frozen=True)
 class CnnBaselineConfig:
-    """Configuration for reproducing the original tutorial CNN baseline."""
-
     data_dir: str | Path = "data/sbol_data"
     output_dir: str | Path = "outputs/cnn_baseline_reference"
     max_files: int = 40
@@ -49,8 +46,6 @@ class CnnBaselineConfig:
 
 @dataclass(frozen=True)
 class CnnCsvSplitConfig:
-    """Configuration for training the CNN on predefined CSV split files."""
-
     train_csv: str | Path
     validation_csv: str | Path
     test_csv: str | Path
@@ -58,6 +53,9 @@ class CnnCsvSplitConfig:
     dataset_name: str = "ep_dnabert2_genomic_order"
     source_accession: str = "GSE144621"
     source_url: str = "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE144621"
+    dataset_version: str = ""
+    id_field: str | None = None
+    manifest_split_files: dict[str, str] | None = None
     sequence_field: str = "sequence"
     label_field: str = "label"
     positive_label: Any = 1
@@ -74,6 +72,11 @@ class CnnCsvSplitConfig:
     early_stopping_patience: int | None = None
     model_variant: str = "tiny"
     dropout: float = 0.25
+    input_channels: int = 5
+    conv_channels: tuple[int, ...] | None = None
+    kernel_sizes: tuple[int, ...] | None = None
+    pooling: str | None = None
+    classifier_hidden: int | None = None
     class_weighting: bool = False
     threshold_strategy: str = "validation_mcc"
     device: str = "cpu"
@@ -85,8 +88,6 @@ class CnnCsvSplitConfig:
 
 @dataclass(frozen=True)
 class CnnBaselineResult:
-    """Artifacts returned after a CNN baseline run."""
-
     output_dir: Path
     metrics: dict[str, dict[str, Any]]
     manifest: dict[str, Any]
@@ -94,23 +95,39 @@ class CnnBaselineResult:
 
 
 class TinyDNACNN(nn.Module):
-    """Small Conv1D classifier matching the tutorial notebook architecture."""
-
-    def __init__(self, channels: int = 5, n_classes: int = 2) -> None:
+    def __init__(
+        self,
+        channels: int = 5,
+        n_classes: int = 2,
+        conv_channels: tuple[int, ...] | None = None,
+        kernel_sizes: tuple[int, ...] | None = None,
+        pooling: str | None = None,
+        classifier_hidden: int | None = None,
+    ) -> None:
         super().__init__()
+        conv_channels = tuple(conv_channels or (32, 64))
+        kernel_sizes = tuple(kernel_sizes or (7, 5))
+        pooling = pooling or "adaptive_max"
+        classifier_hidden = classifier_hidden or 32
+        if len(conv_channels) != 2 or len(kernel_sizes) != 2:
+            raise ValueError("Tiny CNN requires two conv_channels and two kernel_sizes")
+        if pooling != "adaptive_max":
+            raise ValueError("Tiny CNN only supports pooling='adaptive_max'")
+        first, second = conv_channels
+        first_kernel, second_kernel = kernel_sizes
         self.backbone = nn.Sequential(
-            nn.Conv1d(channels, 32, kernel_size=7, padding=3),
+            nn.Conv1d(channels, first, kernel_size=first_kernel, padding=first_kernel // 2),
             nn.ReLU(),
             nn.MaxPool1d(kernel_size=2),
-            nn.Conv1d(32, 64, kernel_size=5, padding=2),
+            nn.Conv1d(first, second, kernel_size=second_kernel, padding=second_kernel // 2),
             nn.ReLU(),
             nn.AdaptiveMaxPool1d(1),
         )
         self.head = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(64, 32),
+            nn.Linear(second, classifier_hidden),
             nn.ReLU(),
-            nn.Linear(32, n_classes),
+            nn.Linear(classifier_hidden, n_classes),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -118,39 +135,56 @@ class TinyDNACNN(nn.Module):
 
 
 class EnhancedDNACNN(nn.Module):
-    """Stronger Conv1D classifier for controlled CNN baseline improvements."""
-
-    def __init__(self, channels: int = 5, n_classes: int = 2, dropout: float = 0.25) -> None:
+    def __init__(
+        self,
+        channels: int = 5,
+        n_classes: int = 2,
+        dropout: float = 0.25,
+        conv_channels: tuple[int, ...] | None = None,
+        kernel_sizes: tuple[int, ...] | None = None,
+        pooling: str | None = None,
+        classifier_hidden: int | None = None,
+    ) -> None:
         super().__init__()
+        conv_channels = tuple(conv_channels or (64, 128))
+        kernel_sizes = tuple(kernel_sizes or (15, 7, 7, 7))
+        pooling = pooling or "adaptive_max_plus_avg"
+        classifier_hidden = classifier_hidden or 128
+        if len(conv_channels) != 2 or len(kernel_sizes) != 4:
+            raise ValueError("Enhanced CNN requires two conv_channels and four kernel_sizes")
+        if pooling != "adaptive_max_plus_avg":
+            raise ValueError("Enhanced CNN only supports pooling='adaptive_max_plus_avg'")
+        first, second = conv_channels
+        first_kernel, second_kernel, third_kernel, fourth_kernel = kernel_sizes
         self.features = nn.Sequential(
-            nn.Conv1d(channels, 64, kernel_size=15, padding=7),
-            nn.BatchNorm1d(64),
+            nn.Conv1d(channels, first, kernel_size=first_kernel, padding=first_kernel // 2),
+            nn.BatchNorm1d(first),
             nn.GELU(),
-            nn.Conv1d(64, 64, kernel_size=7, padding=3),
-            nn.BatchNorm1d(64),
-            nn.GELU(),
-            nn.MaxPool1d(kernel_size=2),
-            nn.Dropout(dropout * 0.5),
-            nn.Conv1d(64, 128, kernel_size=7, padding=6, dilation=2),
-            nn.BatchNorm1d(128),
-            nn.GELU(),
-            nn.Conv1d(128, 128, kernel_size=7, padding=12, dilation=4),
-            nn.BatchNorm1d(128),
+            nn.Conv1d(first, first, kernel_size=second_kernel, padding=second_kernel // 2),
+            nn.BatchNorm1d(first),
             nn.GELU(),
             nn.MaxPool1d(kernel_size=2),
             nn.Dropout(dropout * 0.5),
-            nn.Conv1d(128, 256, kernel_size=3, padding=1),
-            nn.BatchNorm1d(256),
+            nn.Conv1d(first, second, kernel_size=third_kernel, padding=third_kernel - 1, dilation=2),
+            nn.BatchNorm1d(second),
+            nn.GELU(),
+            nn.Conv1d(second, second, kernel_size=fourth_kernel, padding=2 * (fourth_kernel - 1), dilation=4),
+            nn.BatchNorm1d(second),
+            nn.GELU(),
+            nn.MaxPool1d(kernel_size=2),
+            nn.Dropout(dropout * 0.5),
+            nn.Conv1d(second, second * 2, kernel_size=3, padding=1),
+            nn.BatchNorm1d(second * 2),
             nn.GELU(),
         )
         self.avg_pool = nn.AdaptiveAvgPool1d(1)
         self.max_pool = nn.AdaptiveMaxPool1d(1)
         self.head = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(512, 128),
+            nn.Linear(second * 4, classifier_hidden),
             nn.GELU(),
             nn.Dropout(dropout),
-            nn.Linear(128, n_classes),
+            nn.Linear(classifier_hidden, n_classes),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -160,7 +194,6 @@ class EnhancedDNACNN(nn.Module):
 
 
 def run_cnn_baseline(config: CnnBaselineConfig | None = None) -> CnnBaselineResult:
-    """Train the tutorial CNN baseline and write reference artifacts."""
     cfg = config or CnnBaselineConfig()
     _seed_everything(cfg.seed, cfg.deterministic)
 
@@ -214,7 +247,6 @@ def run_cnn_baseline(config: CnnBaselineConfig | None = None) -> CnnBaselineResu
 
 
 def run_cnn_csv_splits(config: CnnCsvSplitConfig) -> CnnBaselineResult:
-    """Train the CNN on predefined train/validation/test CSV files."""
     _seed_everything(config.seed, config.deterministic)
 
     frames = _load_csv_split_frames(config)
@@ -391,6 +423,15 @@ def _load_csv_split_frames(cfg: CnnCsvSplitConfig) -> dict[str, pd.DataFrame]:
             raise ValueError(f"{path} is missing required column(s): {sorted(missing)}")
         if frame.empty:
             raise ValueError(f"{path} is empty")
+        nullable_columns = [
+            column
+            for column in (cfg.sequence_field, cfg.label_field)
+            if frame[column].isna().any()
+        ]
+        if nullable_columns:
+            raise ValueError(
+                f"{path} contains null values in required columns: {nullable_columns}"
+            )
         raw_labels = frame[cfg.label_field]
         known_labels = raw_labels.isin([cfg.negative_label, cfg.positive_label])
         if not known_labels.all():
@@ -410,10 +451,25 @@ def _load_csv_split_frames(cfg: CnnCsvSplitConfig) -> dict[str, pd.DataFrame]:
 
 
 def _build_csv_model(cfg: CnnCsvSplitConfig) -> nn.Module:
+    if cfg.input_channels != 5:
+        raise ValueError("CNN one-hot preprocessing produces exactly 5 input channels")
     if cfg.model_variant == "tiny":
-        return TinyDNACNN()
+        return TinyDNACNN(
+            channels=cfg.input_channels,
+            conv_channels=cfg.conv_channels,
+            kernel_sizes=cfg.kernel_sizes,
+            pooling=cfg.pooling,
+            classifier_hidden=cfg.classifier_hidden,
+        )
     if cfg.model_variant == "enhanced":
-        return EnhancedDNACNN(dropout=cfg.dropout)
+        return EnhancedDNACNN(
+            channels=cfg.input_channels,
+            dropout=cfg.dropout,
+            conv_channels=cfg.conv_channels,
+            kernel_sizes=cfg.kernel_sizes,
+            pooling=cfg.pooling,
+            classifier_hidden=cfg.classifier_hidden,
+        )
     raise ValueError("model_variant must be either 'tiny' or 'enhanced'")
 
 
@@ -639,57 +695,101 @@ def _manifest(cfg: CnnBaselineConfig, data: dict[str, Any], metrics: dict[str, d
 
 def _csv_model_metadata(config: CnnCsvSplitConfig) -> dict[str, Any]:
     if config.model_variant == "tiny":
+        conv_channels = tuple(config.conv_channels or (32, 64))
+        kernel_sizes = tuple(config.kernel_sizes or (7, 5))
+        pooling = config.pooling or "adaptive_max"
+        classifier_hidden = config.classifier_hidden or 32
+        first, second = conv_channels
+        first_kernel, second_kernel = kernel_sizes
         return {
             "name": "TinyDNACNN",
             "variant": "tiny",
+            "configured_parameters": {
+                "input_channels": config.input_channels,
+                "conv_channels": list(conv_channels),
+                "kernel_sizes": list(kernel_sizes),
+                "pooling": pooling,
+                "classifier_hidden": classifier_hidden,
+            },
             "architecture": [
-                "Conv1d(5, 32, kernel_size=7, padding=3)",
+                f"Conv1d({config.input_channels}, {first}, kernel_size={first_kernel}, padding={first_kernel // 2})",
                 "ReLU",
                 "MaxPool1d(kernel_size=2)",
-                "Conv1d(32, 64, kernel_size=5, padding=2)",
+                f"Conv1d({first}, {second}, kernel_size={second_kernel}, padding={second_kernel // 2})",
                 "ReLU",
                 "AdaptiveMaxPool1d(1)",
                 "Flatten",
-                "Linear(64, 32)",
+                f"Linear({second}, {classifier_hidden})",
                 "ReLU",
-                "Linear(32, 2)",
+                f"Linear({classifier_hidden}, 2)",
             ],
         }
 
     if config.model_variant == "enhanced":
+        conv_channels = tuple(config.conv_channels or (64, 128))
+        kernel_sizes = tuple(config.kernel_sizes or (15, 7, 7, 7))
+        pooling = config.pooling or "adaptive_max_plus_avg"
+        classifier_hidden = config.classifier_hidden or 128
+        first, second = conv_channels
+        first_kernel, second_kernel, third_kernel, fourth_kernel = kernel_sizes
+        final_channels = second * 2
         return {
             "name": "EnhancedDNACNN",
             "variant": "enhanced",
             "dropout": float(config.dropout),
+            "configured_parameters": {
+                "input_channels": config.input_channels,
+                "conv_channels": list(conv_channels),
+                "kernel_sizes": list(kernel_sizes),
+                "pooling": pooling,
+                "classifier_hidden": classifier_hidden,
+            },
             "architecture": [
-                "Conv1d(5, 64, kernel_size=15, padding=7)",
-                "BatchNorm1d(64)",
+                f"Conv1d({config.input_channels}, {first}, kernel_size={first_kernel}, padding={first_kernel // 2})",
+                f"BatchNorm1d({first})",
                 "GELU",
-                "Conv1d(64, 64, kernel_size=7, padding=3)",
-                "BatchNorm1d(64)",
-                "GELU",
-                "MaxPool1d(kernel_size=2)",
-                "Dropout",
-                "Conv1d(64, 128, kernel_size=7, padding=6, dilation=2)",
-                "BatchNorm1d(128)",
-                "GELU",
-                "Conv1d(128, 128, kernel_size=7, padding=12, dilation=4)",
-                "BatchNorm1d(128)",
+                f"Conv1d({first}, {first}, kernel_size={second_kernel}, padding={second_kernel // 2})",
+                f"BatchNorm1d({first})",
                 "GELU",
                 "MaxPool1d(kernel_size=2)",
                 "Dropout",
-                "Conv1d(128, 256, kernel_size=3, padding=1)",
-                "BatchNorm1d(256)",
+                f"Conv1d({first}, {second}, kernel_size={third_kernel}, padding={third_kernel - 1}, dilation=2)",
+                f"BatchNorm1d({second})",
+                "GELU",
+                f"Conv1d({second}, {second}, kernel_size={fourth_kernel}, padding={2 * (fourth_kernel - 1)}, dilation=4)",
+                f"BatchNorm1d({second})",
+                "GELU",
+                "MaxPool1d(kernel_size=2)",
+                "Dropout",
+                f"Conv1d({second}, {final_channels}, kernel_size=3, padding=1)",
+                f"BatchNorm1d({final_channels})",
                 "GELU",
                 "AdaptiveAvgPool1d(1) + AdaptiveMaxPool1d(1)",
-                "Linear(512, 128)",
+                f"Linear({final_channels * 2}, {classifier_hidden})",
                 "GELU",
                 "Dropout",
-                "Linear(128, 2)",
+                "Linear(classifier_hidden, 2)",
             ],
         }
 
     raise ValueError("model_variant must be either 'tiny' or 'enhanced'")
+
+
+def _csv_content_sha256(path: Path, cfg: CnnCsvSplitConfig) -> str:
+    frame = pd.read_csv(path)
+    columns = [cfg.sequence_field, cfg.label_field]
+    if cfg.id_field and cfg.id_field in frame.columns:
+        columns.append(cfg.id_field)
+    rows = [
+        ["" if pd.isna(value) else str(value) for value in row]
+        for row in frame[columns].itertuples(index=False, name=None)
+    ]
+    payload = json.dumps(
+        {"columns": columns, "rows": rows},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _csv_manifest(
@@ -701,23 +801,33 @@ def _csv_manifest(
     validation_score: float,
 ) -> dict[str, Any]:
     split_summary = {}
+    split_paths = {
+        "train": Path(cfg.train_csv),
+        "validation": Path(cfg.validation_csv),
+        "test": Path(cfg.test_csv),
+    }
     for split, frame in frames.items():
         counts = frame[cfg.label_field].astype(int).value_counts().sort_index().to_dict()
         split_summary[split] = {
             "rows": int(len(frame)),
             "class_counts": {str(key): int(value) for key, value in counts.items()},
+            "content_sha256": _csv_content_sha256(split_paths[split], cfg),
         }
 
+    configured_split_files = cfg.manifest_split_files or {
+        split: str(path) for split, path in split_paths.items()
+    }
     return {
         "task": "csv_split_cnn_baseline",
         "dataset": {
             "name": cfg.dataset_name,
             "source_accession": cfg.source_accession,
             "source_url": cfg.source_url,
-            "split_files": {
-                "train": str(cfg.train_csv),
-                "validation": str(cfg.validation_csv),
-                "test": str(cfg.test_csv),
+            "version": cfg.dataset_version,
+            "split_files": configured_split_files,
+            "split_summary": split_summary,
+            "split_content_sha256": {
+                split: values["content_sha256"] for split, values in split_summary.items()
             },
             "sequence_field": cfg.sequence_field,
             "label_field": cfg.label_field,
@@ -778,14 +888,26 @@ def _write_outputs(
     checkpoint_state: dict[str, Any] | None = None,
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
+    save_json = bool(getattr(cfg, "save_json", True))
+    save_csv = bool(getattr(cfg, "save_csv", True))
+    save_predictions = bool(getattr(cfg, "save_predictions", True))
+    stale_artifacts = (
+        (("config.json", "metrics.json"), save_json),
+        (("history.csv", "metrics.csv"), save_csv),
+        (("predictions.csv",), save_predictions),
+    )
+    for filenames, enabled in stale_artifacts:
+        if not enabled:
+            for filename in filenames:
+                (output_dir / filename).unlink(missing_ok=True)
     (output_dir / "manifest.json").write_text(json.dumps(_json_ready(manifest), indent=2), encoding="utf-8")
-    if getattr(cfg, "save_json", True):
+    if save_json:
         (output_dir / "config.json").write_text(json.dumps(_json_ready(asdict(cfg)), indent=2), encoding="utf-8")
         (output_dir / "metrics.json").write_text(json.dumps(_json_ready(metrics), indent=2), encoding="utf-8")
-    if getattr(cfg, "save_csv", True):
+    if save_csv:
         pd.DataFrame(history).to_csv(output_dir / "history.csv", index=False)
         pd.DataFrame(_flatten_metrics(metrics)).to_csv(output_dir / "metrics.csv", index=False)
-    if getattr(cfg, "save_predictions", True):
+    if save_predictions:
         pd.concat(prediction_frames, ignore_index=True).to_csv(output_dir / "predictions.csv", index=False)
     if checkpoint_state is not None:
         uses_validation_checkpoint = isinstance(cfg, CnnCsvSplitConfig) and (

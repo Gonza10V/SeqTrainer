@@ -1,10 +1,10 @@
-"""iPro-MP external benchmark preparation and prediction normalization."""
-
 from __future__ import annotations
 
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote, unquote
 
 import pandas as pd
 
@@ -17,8 +17,6 @@ SPLIT_ORDER = ("train", "validation", "test")
 
 @dataclass(frozen=True)
 class IprompPreparationResult:
-    """Paths written for external iPro-MP inference."""
-
     output_dir: Path
     fasta_paths: dict[str, Path]
     mapping_csv: Path
@@ -32,7 +30,6 @@ def prepare_ipromp_inputs(
     base_dir: str | Path | None = None,
     output_dir: str | Path | None = None,
 ) -> IprompPreparationResult:
-    """Write FASTA, mapping, command, and schema files for external iPro-MP."""
     config = load_benchmark_config(config_or_path) if not isinstance(config_or_path, BenchmarkConfig) else config_or_path
     frames = load_predefined_split_frames(config, base_dir=base_dir)
     out_dir = Path(output_dir or config.outputs.output_dir)
@@ -66,7 +63,8 @@ def prepare_ipromp_inputs(
 
 
 def build_ipromp_mapping(config: BenchmarkConfig, frames: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """Create stable row IDs for every configured benchmark split."""
+    """Create stable IDs for attaching external predictions to split rows."""
+
     rows: list[dict[str, Any]] = []
     for split in SPLIT_ORDER:
         frame = frames[split].reset_index(drop=True)
@@ -83,7 +81,9 @@ def build_ipromp_mapping(config: BenchmarkConfig, frames: dict[str, pd.DataFrame
                     "sequence": sequence,
                 }
             )
-    return pd.DataFrame(rows)
+    mapping = pd.DataFrame(rows)
+    _validate_mapping(mapping)
+    return mapping
 
 
 def write_ipromp_fastas(
@@ -93,7 +93,6 @@ def write_ipromp_fastas(
     *,
     mapping: pd.DataFrame | None = None,
 ) -> dict[str, Path]:
-    """Write SeqTrainer split CSV rows as iPro-MP-compatible FASTA files."""
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     mapping = mapping if mapping is not None else build_ipromp_mapping(config, frames)
@@ -104,7 +103,7 @@ def write_ipromp_fastas(
         for row in split_mapping.itertuples(index=False):
             header = (
                 f">seqtrainer|split={row.split}|row_index={row.row_index}|"
-                f"sequence_id={row.sequence_id}|label={row.label}"
+                f"sequence_id={_encode_fasta_value(row.sequence_id)}|label={row.label}"
             )
             lines.append(header)
             lines.append(str(row.sequence))
@@ -119,7 +118,6 @@ def write_ipromp_run_commands(
     fasta_paths: dict[str, Path],
     output_dir: str | Path,
 ) -> Path:
-    """Write a shell script with official iPro-MP prediction commands."""
     params = dict(config.model.params)
     out_dir = Path(output_dir)
     external_predictions_dir = out_dir / "external_predictions"
@@ -128,8 +126,12 @@ def write_ipromp_run_commands(
     dnabert_dir = str(params.get("dnabert6_path", "./external/iPro-MP/DNABERT-6"))
     model_dir = str(params.get("ipromp_model_dir", "./external/iPro-MP/models"))
     batch_size = int(params.get("inference_batch_size", 32))
-    max_length = int(params.get("max_length", 128))
+    preprocessing = dict(config.preprocessing.params)
+    max_length = int(config.preprocessing.sequence_length or 128)
+    kmer_size = int(preprocessing.get("kmer_size", 6))
     seed = int(config.training.seed)
+    requested_device = str(config.environment.device or "auto")
+    device = "auto" if requested_device == "external" else requested_device
     script = out_dir / "ipromp_run_commands.sh"
     lines = [
         "#!/usr/bin/env bash",
@@ -153,8 +155,10 @@ def write_ipromp_run_commands(
                 "  --model-dir \"${IPROMP_MODEL_DIR}\" \\",
                 f"  --species-id {species_id} \\",
                 f"  --max-length {max_length} \\",
+                f"  --kmer-size {kmer_size} \\",
                 f"  --batch-size {batch_size} \\",
-                f"  --seed {seed}",
+                f"  --seed {seed} \\",
+                f"  --device {shlex.quote(device)}",
                 "",
             ]
         )
@@ -163,7 +167,6 @@ def write_ipromp_run_commands(
 
 
 def write_external_prediction_schema(output_dir: str | Path) -> Path:
-    """Document accepted external iPro-MP prediction formats."""
     path = Path(output_dir) / "external_prediction_schema.md"
     path.write_text(
         """# External iPro-MP Prediction Schema
@@ -206,17 +209,29 @@ def normalize_ipromp_predictions(
     train_predictions_csv: str | Path | None = None,
     predictions_csv: str | Path | None = None,
     base_dir: str | Path | None = None,
+    frames: dict[str, pd.DataFrame] | None = None,
 ) -> pd.DataFrame:
-    """Normalize official iPro-MP or SeqTrainer prediction files."""
     mapping_path = _resolve_input_path(mapping_csv, base_dir)
     if not mapping_path.exists():
         raise FileNotFoundError(f"Missing iPro-MP mapping CSV: {mapping_path}")
-    mapping = pd.read_csv(mapping_path)
+    mapping = pd.read_csv(mapping_path, dtype={"sequence_id": str})
     _validate_mapping(mapping)
+    current_frames = frames or load_predefined_split_frames(config, base_dir=base_dir)
+    _validate_mapping_matches_frames(config, mapping, current_frames)
 
     if predictions_csv is not None:
         combined = _read_prediction_table(_resolve_input_path(predictions_csv, base_dir))
         if "split" in combined.columns:
+            supplied_splits = set(combined["split"].astype(str))
+            required_splits = {"validation", "test"}
+            missing_splits = required_splits.difference(supplied_splits)
+            unknown_splits = supplied_splits.difference(SPLIT_ORDER)
+            if missing_splits or unknown_splits:
+                raise ValueError(
+                    "Combined iPro-MP predictions must include validation and test rows and "
+                    f"may only use train/validation/test; missing={sorted(missing_splits)}, "
+                    f"unknown={sorted(unknown_splits)}."
+                )
             return _normalize_seqtrainer_predictions(config, combined, mapping)
         raise ValueError("Combined iPro-MP predictions must include a split column.")
 
@@ -241,7 +256,8 @@ def normalize_ipromp_predictions(
 
 
 def normalize_dna_sequence(sequence: str) -> str:
-    """Normalize a DNA sequence and fail on invalid bases."""
+    """Canonicalize DNA input, including U-to-T conversion."""
+
     cleaned = sequence.strip().upper().replace("U", "T")
     if not cleaned:
         raise ValueError("Cannot write an empty sequence to FASTA")
@@ -281,15 +297,58 @@ def _normalize_seqtrainer_predictions(
     if missing:
         raise ValueError(f"Normalized iPro-MP predictions are missing columns: {sorted(missing)}")
 
+    table["split"] = table["split"].astype(str)
+    target_mapping = mapping.copy()
+    target_mapping["split"] = target_mapping["split"].astype(str)
+    if expected_split is not None:
+        target_mapping = target_mapping[target_mapping["split"] == expected_split]
+    else:
+        supplied_splits = set(table["split"])
+        target_mapping = target_mapping[target_mapping["split"].isin(supplied_splits)]
+
     if "sequence_id" in table.columns:
-        merged = table.merge(mapping, on=["split", "sequence_id"], how="left", suffixes=("_pred", ""))
+        table["sequence_id"] = table["sequence_id"].map(_decode_fasta_value)
+        target_mapping["sequence_id"] = target_mapping["sequence_id"].map(_decode_fasta_value)
+        prediction_keys = table[["split", "sequence_id"]]
+        if prediction_keys.duplicated().any():
+            raise ValueError("Normalized iPro-MP predictions contain duplicate split/sequence_id rows.")
+        expected_keys = target_mapping[["split", "sequence_id"]]
+        missing_keys = expected_keys.merge(prediction_keys, on=["split", "sequence_id"], how="left", indicator=True)
+        missing_keys = missing_keys[missing_keys["_merge"] == "left_only"]
+        unexpected_keys = prediction_keys.merge(expected_keys, on=["split", "sequence_id"], how="left", indicator=True)
+        unexpected_keys = unexpected_keys[unexpected_keys["_merge"] == "left_only"]
+        if not missing_keys.empty or not unexpected_keys.empty:
+            raise ValueError(
+                "Normalized iPro-MP predictions must contain exactly one row for every "
+                "mapped split/sequence_id. "
+                f"Missing rows: {len(missing_keys)}; unexpected rows: {len(unexpected_keys)}."
+            )
+        merged = target_mapping.merge(table, on=["split", "sequence_id"], how="left", suffixes=("", "_pred"))
     else:
         merged = table.copy()
         merged["row_index"] = merged.groupby("split").cumcount()
-        merged = merged.merge(mapping, on=["split", "row_index"], how="left", suffixes=("_pred", ""))
+        expected_counts = target_mapping.groupby("split").size().to_dict()
+        actual_counts = merged.groupby("split").size().to_dict()
+        if actual_counts != expected_counts:
+            raise ValueError(
+                "Normalized iPro-MP predictions must contain exactly one row for every "
+                f"mapped split. Expected counts: {expected_counts}; received: {actual_counts}."
+            )
+        merged = target_mapping.merge(merged, on=["split", "row_index"], how="left", suffixes=("", "_pred"))
     if merged["label"].isna().any() or merged["sequence"].isna().any():
         raise ValueError("Could not map every normalized iPro-MP prediction row back to the benchmark split.")
     if "label_pred" in merged.columns:
+        expected_labels = pd.to_numeric(merged["label"], errors="coerce")
+        supplied_labels = pd.to_numeric(merged["label_pred"], errors="coerce")
+        if (
+            expected_labels.isna().any()
+            or supplied_labels.isna().any()
+            or not expected_labels.equals(supplied_labels)
+        ):
+            raise ValueError(
+                "Normalized iPro-MP labels do not match the mapped benchmark rows. "
+                "Use sequence_id to preserve row identity."
+            )
         merged = merged.drop(columns=["label_pred"])
     return _standard_prediction_columns(merged)
 
@@ -315,17 +374,47 @@ def _normalize_official_predictions(
     if prediction_col in table.columns:
         table["source_prediction"] = table[prediction_col]
         if "probability" not in table.columns:
-            table["prediction"] = table[prediction_col].astype(int)
-    split_mapping = mapping[mapping["split"] == split].copy()
-    duplicated = split_mapping["sequence"].duplicated(keep=False)
-    if duplicated.any() and "sequence_id" not in table.columns:
-        examples = split_mapping.loc[duplicated, "sequence"].head(3).tolist()
+            table["prediction"] = _validated_hard_predictions(
+                table[prediction_col],
+                context=f"official iPro-MP {split} predictions",
+            )
+    if "probability" not in table.columns and "prediction" not in table.columns:
         raise ValueError(
-            "Official iPro-MP output joins by Sequence, but this split has duplicate sequences. "
-            f"Use SeqTrainer-normalized output with sequence_id. Examples: {examples}"
+            "Official iPro-MP predictions must include a probability or hard prediction column."
         )
-    merged = split_mapping.merge(table, on="sequence", how="left", suffixes=("", "_pred"))
-    if merged["probability"].isna().any() and "prediction" not in merged.columns:
+    split_mapping = mapping[mapping["split"] == split].copy()
+    if "sequence_id" in table.columns:
+        if table["sequence_id"].isna().any() or table["sequence_id"].astype(str).str.strip().eq("").any():
+            raise ValueError("Official iPro-MP predictions contain missing sequence_id values.")
+        table["sequence_id"] = table["sequence_id"].astype(str)
+        split_mapping["sequence_id"] = split_mapping["sequence_id"].astype(str)
+        prediction_keys = table[["sequence_id"]]
+        if prediction_keys.duplicated().any():
+            raise ValueError("Official iPro-MP predictions contain duplicate sequence_id rows.")
+        expected_keys = split_mapping[["sequence_id"]]
+        missing_keys = expected_keys.merge(prediction_keys, on="sequence_id", how="left", indicator=True)
+        missing_keys = missing_keys[missing_keys["_merge"] == "left_only"]
+        unexpected_keys = prediction_keys.merge(expected_keys, on="sequence_id", how="left", indicator=True)
+        unexpected_keys = unexpected_keys[unexpected_keys["_merge"] == "left_only"]
+        if not missing_keys.empty or not unexpected_keys.empty:
+            raise ValueError(
+                "Official iPro-MP predictions with sequence_id must contain exactly one row for every "
+                f"{split} mapping. Missing rows: {len(missing_keys)}; unexpected rows: {len(unexpected_keys)}."
+            )
+        merged = split_mapping.merge(table, on="sequence_id", how="left", suffixes=("", "_pred"))
+    else:
+        duplicated = split_mapping["sequence"].duplicated(keep=False)
+        if duplicated.any():
+            examples = split_mapping.loc[duplicated, "sequence"].head(3).tolist()
+            raise ValueError(
+                "Official iPro-MP output joins by Sequence, but this split has duplicate sequences. "
+                f"Use SeqTrainer-normalized output with sequence_id. Examples: {examples}"
+            )
+        merged = split_mapping.merge(table, on="sequence", how="left", suffixes=("", "_pred"))
+    if "probability" in merged.columns and merged["probability"].isna().any():
+        if "prediction" not in merged.columns or merged["prediction"].isna().any():
+            raise ValueError(f"Missing iPro-MP predictions for at least one {split} sequence.")
+    if "prediction" in merged.columns and merged["prediction"].isna().any():
         raise ValueError(f"Missing iPro-MP predictions for at least one {split} sequence.")
     if len(merged) != len(split_mapping):
         raise ValueError(f"iPro-MP prediction count mismatch for {split}: expected {len(split_mapping)}, got {len(merged)}")
@@ -343,7 +432,10 @@ def _standard_prediction_columns(frame: pd.DataFrame) -> pd.DataFrame:
     if "probability" in out.columns:
         out["probability"] = out["probability"].astype(float)
     if "prediction" in out.columns:
-        out["prediction"] = out["prediction"].astype(int)
+        out["prediction"] = _validated_hard_predictions(
+            out["prediction"],
+            context="iPro-MP predictions",
+        )
     if "source_prediction" not in out.columns and "prediction" in out.columns:
         out["source_prediction"] = out["prediction"]
     columns = ["split", "row_index", "sequence_id", "label", "sequence"]
@@ -351,6 +443,20 @@ def _standard_prediction_columns(frame: pd.DataFrame) -> pd.DataFrame:
         if optional in out.columns:
             columns.append(optional)
     return out[columns].sort_values(["split", "row_index"]).reset_index(drop=True)
+
+
+def _validated_hard_predictions(values: pd.Series, *, context: str) -> pd.Series:
+    numeric = pd.to_numeric(values, errors="coerce")
+    if (
+        numeric.isna().any()
+        or not numeric.eq(numeric.round()).all()
+        or not numeric.isin([0, 1]).all()
+    ):
+        raise ValueError(
+            f"{context} hard labels must be binary integer values 0 or 1; "
+            f"received examples: {values.drop_duplicates().tolist()[:5]}"
+        )
+    return numeric.astype(int)
 
 
 def _sequence_id(config: BenchmarkConfig, row: pd.Series, split: str, row_index: int) -> str:
@@ -366,11 +472,38 @@ def _validate_mapping(mapping: pd.DataFrame) -> None:
     if missing:
         raise ValueError(f"iPro-MP mapping CSV is missing columns: {sorted(missing)}")
 
+    for keys, description in (
+        (["split", "sequence_id"], "split/sequence_id"),
+        (["split", "row_index"], "split/row_index"),
+    ):
+        if mapping.duplicated(subset=keys).any():
+            raise ValueError(
+                f"iPro-MP mapping contains duplicate {description} keys."
+            )
+
+
+def _validate_mapping_matches_frames(
+    config: BenchmarkConfig,
+    mapping: pd.DataFrame,
+    frames: dict[str, pd.DataFrame],
+) -> None:
+    expected = build_ipromp_mapping(config, frames)
+    columns = ["split", "row_index", "sequence_id", "label", "sequence"]
+    actual_rows = mapping[columns].copy()
+    expected_rows = expected[columns].copy()
+    actual_rows = actual_rows.sort_values(["split", "row_index"]).reset_index(drop=True)
+    expected_rows = expected_rows.sort_values(["split", "row_index"]).reset_index(drop=True)
+    if not actual_rows.equals(expected_rows):
+        raise ValueError(
+            "Cached iPro-MP mapping does not match the currently loaded benchmark "
+            "splits. Re-run `seqtrainer benchmark prepare-ipromp` to rebuild it."
+        )
+
 
 def _read_prediction_table(path: Path) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"Missing iPro-MP prediction file: {path}")
-    return pd.read_csv(path, sep=None, engine="python")
+    return pd.read_csv(path, sep=None, engine="python", dtype={"sequence_id": str})
 
 
 def _resolve_output_path(
@@ -399,12 +532,17 @@ def _resolve_input_path(path: str | Path, base_dir: str | Path | None) -> Path:
     return Path(base_dir or Path.cwd()) / resolved
 
 
-def _as_posix(path: str | Path) -> str:
-    return Path(path).as_posix()
+def _encode_fasta_value(value: Any) -> str:
+    return "url:" + quote(str(value), safe="")
+
+
+def _decode_fasta_value(value: Any) -> str:
+    text = str(value)
+    return unquote(text[4:]) if text.startswith("url:") else text
 
 
 def _script_path(path: str | Path) -> str:
     resolved = Path(path)
     if resolved.is_absolute():
-        return '"' + _as_posix(resolved) + '"'
-    return '"${SEQTRAINER_ROOT}/' + _as_posix(resolved) + '"'
+        return '"' + resolved.as_posix() + '"'
+    return '"${SEQTRAINER_ROOT}/' + resolved.as_posix() + '"'

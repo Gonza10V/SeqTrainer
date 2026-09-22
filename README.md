@@ -46,6 +46,7 @@ Optional extras:
 pip install -e '.[torch]'
 pip install -e '.[keras]'
 pip install -e '.[gnn]'
+pip install -e '.[annotation]'
 pip install -e '.[dev]'
 ```
 
@@ -71,6 +72,9 @@ seqtrainer sparql prefixes
 seqtrainer inspect-sbol data/sbol_data/sample_design_0.xml
 seqtrainer build-dataset data/sbol_data/sample_design_0.xml
 ```
+
+For promoter annotation from a GenBank file, install `.[annotation,torch]` and
+follow the concise [annotation guide](docs/annotation/README.md).
 
 ## Status
 

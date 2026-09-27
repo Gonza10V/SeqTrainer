@@ -90,9 +90,12 @@ class ScalarKNNRetriever:
             columns.extend(c for c in metadata_columns if c not in columns)
 
         records = data.loc[:, columns].copy()
+        # Remove missing required values before string conversion; otherwise,
+        # null sequences such as ``np.nan`` become the literal string "nan".
+        records = records.dropna(subset=[sequence_column, value_column])
         records[sequence_column] = records[sequence_column].astype(str)
         records[value_column] = pd.to_numeric(records[value_column], errors="coerce")
-        records = records.dropna(subset=[sequence_column, value_column]).reset_index(drop=True)
+        records = records.dropna(subset=[value_column]).reset_index(drop=True)
 
         if records.empty:
             raise ValueError("Cannot fit KNN retriever with no valid records")

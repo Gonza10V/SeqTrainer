@@ -55,6 +55,28 @@ def test_factory_preserves_metadata_columns():
     assert results.loc[0, "part_id"] == "p2"
 
 
+def test_fit_drops_null_sequences_and_invalid_values_before_conversion():
+    df = pd.DataFrame(
+        {
+            "sequence": ["AAAA", None, float("nan"), pd.NA, "CCCC", "GGGG"],
+            "label": [0.1, 0.2, 0.3, 0.4, None, "not-a-number"],
+        }
+    )
+
+    retriever = ScalarKNNRetriever().fit(df)
+
+    assert list(retriever.records_["sequence"]) == ["AAAA"]
+    assert list(retriever.records_["label"]) == [0.1]
+
+
+@pytest.mark.parametrize("missing_sequence", [None, float("nan"), pd.NA])
+def test_fit_rejects_data_with_only_null_sequences(missing_sequence):
+    df = pd.DataFrame({"sequence": [missing_sequence], "label": [0.1]})
+
+    with pytest.raises(ValueError, match="no valid records"):
+        ScalarKNNRetriever().fit(df)
+
+
 def test_save_and_load_round_trip(tmp_path):
     df = pd.DataFrame({"sequence": ["AAAA", "CCCC"], "label": [0.1, 0.4]})
     retriever = PromoterActivityKNN(n_neighbors=1).fit(df)

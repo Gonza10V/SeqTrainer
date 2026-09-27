@@ -28,6 +28,9 @@ pip install -e '.[gnn]'
 pip install -e '.[dev]'
 ```
 
+SeqTrainer supports Python 3.10 and newer. Remote model downloads, external
+benchmark adapters, and accelerator experiments are always opt-in.
+
 ## Package layout
 
 - `seqtrainer/clients`: SynBioHub and remote clients (auth/retry/pagination-ready client)
@@ -40,6 +43,8 @@ pip install -e '.[dev]'
 - `seqtrainer/graph`: RDF/SBOL graph conversion, schema extraction, and graph-config builders
 - `seqtrainer/applications`: task-oriented blueprints
 - `seqtrainer/cli`: command-line entrypoints
+- `seqtrainer/benchmarks`: reproducible, manifest-backed benchmark contracts
+- `seqtrainer/experimental/titans`: explicitly experimental Titans research APIs
 
 ## CLI examples
 

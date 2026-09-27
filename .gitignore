@@ -8,3 +8,11 @@ testvenv/
 seqtrainer-data
 dnabert-out
 dnabertvenv
+.pytest_tmp/
+artifacts/
+benchmark-outputs/
+*.ckpt
+*.pt
+*.pth
+__pycache__/
+*.py[cod]

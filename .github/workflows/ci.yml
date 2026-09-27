@@ -16,7 +16,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+      python-version: "3.12"
 
       - name: Install dependencies
         run: |
@@ -35,6 +35,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        python-version: ["3.10", "3.12"]
         extra: [base, torch, keras, gnn]
 
     steps:
@@ -44,7 +45,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies (base)
         run: |
@@ -61,7 +62,7 @@ jobs:
 
       - name: Run tests (torch)
         if: matrix.extra == 'torch'
-        run: pytest -q tests/test_torch_models.py tests/test_tensorization_pipeline.py tests/test_imports.py
+        run: pytest -q
 
       - name: Run tests (keras)
         if: matrix.extra == 'keras'

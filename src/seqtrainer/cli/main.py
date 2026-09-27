@@ -69,6 +69,24 @@ def _build_parser() -> argparse.ArgumentParser:
     model_build.add_argument("--epochs", type=int, default=5)
     model_build.add_argument("--output", type=Path)
 
+    benchmark = subparsers.add_parser("benchmark", help="Reproducible benchmark commands")
+    benchmark_sub = benchmark.add_subparsers(dest="benchmark_command", required=True)
+    for name, help_text in (("run", "Run a configured benchmark"), ("manifest", "Validate config and write a manifest")):
+        command = benchmark_sub.add_parser(name, help=help_text)
+        command.add_argument("config", type=Path)
+        command.add_argument("--output-dir", type=Path)
+        command.add_argument("--base-dir", type=Path, default=Path.cwd())
+        if name == "run":
+            command.add_argument("--strict", action="store_true", help="Fail instead of recording an opt-in skip")
+    compare = benchmark_sub.add_parser("compare", help="Compare compatible completed manifests")
+    compare.add_argument("artifact_dirs", nargs="+", type=Path)
+    compare.add_argument("--output-dir", type=Path, required=True)
+    for name, help_text in (("prepare-dnabert2", "Prepare offline DNABERT2 tokenized splits"), ("prepare-ipromp", "Prepare FASTA and mapping files for external iPro-MP")):
+        command = benchmark_sub.add_parser(name, help=help_text)
+        command.add_argument("config", type=Path)
+        command.add_argument("--output-dir", type=Path)
+        command.add_argument("--base-dir", type=Path, default=Path.cwd())
+
     return parser
 
 
@@ -125,6 +143,34 @@ def main(argv: list[str] | None = None) -> int:
             print(f"# cache_snapshot={manifest.snapshot_key}")
         return 0
 
+    if args.command == "benchmark":
+        if args.benchmark_command == "run":
+            from seqtrainer.benchmarks import run_benchmark
+
+            result = run_benchmark(args.config, base_dir=args.base_dir, output_dir=args.output_dir, allow_skip=not args.strict)
+            print(f"status={result.status}\noutput_dir={result.output_dir}")
+            return 0
+        if args.benchmark_command == "manifest":
+            return _write_benchmark_manifest(args.config, args.output_dir, args.base_dir)
+        if args.benchmark_command == "compare":
+            from seqtrainer.benchmarks import compare_benchmark_outputs
+
+            written = compare_benchmark_outputs(args.artifact_dirs, output_dir=args.output_dir)
+            print(f"comparison_metrics={written['comparison_metrics']}\ncomparison_summary={written['comparison_summary']}")
+            return 0
+        if args.benchmark_command == "prepare-dnabert2":
+            from seqtrainer.benchmarks import prepare_dnabert2_tokenized_splits
+
+            tokenized = prepare_dnabert2_tokenized_splits(args.config, base_dir=args.base_dir, output_dir=args.output_dir)
+            print(f"output_dir={tokenized.output_dir}\nmetadata={tokenized.metadata_path}")
+            return 0
+        if args.benchmark_command == "prepare-ipromp":
+            from seqtrainer.adapters.ipromp import prepare_ipromp_inputs
+
+            prepared = prepare_ipromp_inputs(args.config, base_dir=args.base_dir, output_dir=args.output_dir)
+            print(f"output_dir={prepared.output_dir}\nmapping_csv={prepared.mapping_csv}\ncommand_script={prepared.command_script}")
+            return 0
+
     if args.command == "sparql" and args.sparql_command == "prefixes":
         print(format_prefixes())
         return 0
@@ -165,6 +211,27 @@ def main(argv: list[str] | None = None) -> int:
 
     parser.error("Unhandled command")
     return 2
+
+
+def _write_benchmark_manifest(config_path: Path, output_dir_arg: Path | None, base_dir: Path) -> int:
+    from seqtrainer.benchmarks import (
+        build_run_manifest,
+        load_benchmark_config,
+        load_predefined_split_frames,
+        summarize_split_frames,
+        write_benchmark_outputs,
+    )
+
+    config = load_benchmark_config(config_path)
+    frames = load_predefined_split_frames(config, base_dir=base_dir)
+    split_summary = summarize_split_frames(config, frames)
+    manifest = build_run_manifest(config, repo_dir=base_dir, split_summary=split_summary)
+    output_dir = output_dir_arg or Path(config.outputs.output_dir)
+    write_benchmark_outputs(output_dir, manifest=manifest, config=config)
+    print(f"output_dir={output_dir}\nmanifest={output_dir / 'manifest.json'}")
+    for split, summary in split_summary.items():
+        print(f"{split}: rows={summary['rows']} class_counts={summary['class_counts']}")
+    return 0
 
 
 if __name__ == "__main__":

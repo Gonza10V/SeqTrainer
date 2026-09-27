@@ -561,6 +561,29 @@ def test_dnabert2_tokenization_pipeline_uses_shared_splits_and_metadata(tmp_path
     assert len(tokenized) == 4
 
 
+@pytest.mark.parametrize("allow_download", [False, True])
+def test_dnabert2_tokenizer_network_access_follows_allow_download(monkeypatch, allow_download):
+    from seqtrainer.benchmarks.dnabert2 import _load_tokenizer
+
+    captured = {}
+
+    def from_pretrained(model_name, **kwargs):
+        captured.update(kwargs)
+        return _StubTokenizer()
+
+    fake_transformers = types.ModuleType("transformers")
+    fake_transformers.AutoTokenizer = types.SimpleNamespace(from_pretrained=from_pretrained)
+    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+
+    _load_tokenizer(
+        "fake/dnabert2",
+        trust_remote_code=True,
+        allow_download=allow_download,
+    )
+
+    assert captured["local_files_only"] is not allow_download
+
+
 def test_dnabert2_tokenization_only_mode_never_reports_classifier_metrics(tmp_path):
     pytest.importorskip("torch")
     from seqtrainer.torch.dnabert2_benchmark import run_dnabert2_csv_splits

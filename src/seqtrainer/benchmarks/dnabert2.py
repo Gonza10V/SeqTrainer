@@ -43,7 +43,6 @@ def prepare_dnabert2_tokenized_splits(
         model_name,
         trust_remote_code=trust_remote_code,
         allow_download=allow_download,
-        require_model_files=require_model_files,
         revision=params.get("revision"),
     )
     frames = load_predefined_split_frames(config, base_dir=base_dir)
@@ -92,7 +91,6 @@ def _load_tokenizer(
     *,
     trust_remote_code: bool,
     allow_download: bool,
-    require_model_files: bool,
     revision: str | None = None,
 ) -> Any:
     try:
@@ -102,7 +100,7 @@ def _load_tokenizer(
             "DNABERT2 tokenization requires transformers. Install with `python -m pip install -e \".[torch]\"`."
         ) from exc
 
-    local_files_only = require_model_files and not allow_download
+    local_files_only = not allow_download
     try:
         return AutoTokenizer.from_pretrained(
             model_name,

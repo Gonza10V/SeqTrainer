@@ -820,7 +820,7 @@ def _patch_bert_config_pad_token_id(pad_token_id: int | None) -> None:
         from transformers.configuration_utils import PretrainedConfig
         from transformers.models.bert.configuration_bert import BertConfig
 
-        PretrainedConfig.pad_token_id = pad_token_id  # type: ignore[attr-defined]
+        PretrainedConfig.pad_token_id = pad_token_id
         BertConfig.pad_token_id = pad_token_id
     except Exception:
         return

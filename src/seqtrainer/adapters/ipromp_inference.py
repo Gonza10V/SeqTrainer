@@ -272,7 +272,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Iterable[str] | None = None) -> int:
-    args = _build_parser().parse_args(argv)
+    args = _build_parser().parse_args(list(argv) if argv is not None else None)
     metadata = run_ipromp_ensemble(
         input_fasta=args.input_fasta,
         output_csv=args.output_csv,

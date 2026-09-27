@@ -60,7 +60,7 @@ def build_run_manifest(
 
 
 def runtime_metadata() -> dict[str, Any]:
-    packages = {}
+    packages: dict[str, str | None] = {}
     for name in ("seqtrainer", "numpy", "pandas", "scikit-learn", "torch", "transformers"):
         try:
             packages[name] = metadata.version(name)
@@ -84,7 +84,7 @@ def git_metadata(repo_dir: str | Path | None = None) -> dict[str, Any]:
 
 
 def to_plain_data(value: Any) -> Any:
-    if is_dataclass(value):
+    if not isinstance(value, type) and is_dataclass(value):
         return to_plain_data(asdict(value))
     if isinstance(value, dict):
         return {str(key): to_plain_data(item) for key, item in value.items()}

@@ -35,6 +35,11 @@ def run_dnabert2_csv_splits(
     tokenizer: Any | None = None,
     encoder: Any | None = None,
 ) -> BenchmarkRunResult:
+    # Validate and load the configured data before checking optional model
+    # dependencies. Missing input files are configuration errors and must not
+    # be disguised as an optional-dependency skip.
+    frames = load_predefined_split_frames(config, base_dir=base_dir)
+
     try:
         import torch
         from torch import nn
@@ -45,7 +50,6 @@ def run_dnabert2_csv_splits(
         ) from exc
 
     _seed_everything(config.training.seed)
-    frames = load_predefined_split_frames(config, base_dir=base_dir)
     split_summary = summarize_split_frames(config, frames)
     imbalance_policy = decide_imbalance_policy(split_summary)
     params = dict(config.model.params)

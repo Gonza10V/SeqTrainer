@@ -6,7 +6,7 @@ import sys
 from dataclasses import asdict, is_dataclass
 from importlib import metadata
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from .config import BenchmarkConfig
 
@@ -60,7 +60,7 @@ def build_run_manifest(
 
 
 def runtime_metadata() -> dict[str, Any]:
-    packages = {}
+    packages: dict[str, str | None] = {}
     for name in ("seqtrainer", "numpy", "pandas", "scikit-learn", "torch", "transformers"):
         try:
             packages[name] = metadata.version(name)
@@ -84,8 +84,11 @@ def git_metadata(repo_dir: str | Path | None = None) -> dict[str, Any]:
 
 
 def to_plain_data(value: Any) -> Any:
-    if is_dataclass(value):
-        return to_plain_data(asdict(value))
+    if not isinstance(value, type) and is_dataclass(value):
+        # ``is_dataclass`` accepts both instances and classes. The explicit
+        # class exclusion above makes this safe at runtime, while the cast
+        # avoids relying on version-specific mypy narrowing behavior.
+        return to_plain_data(asdict(cast(Any, value)))
     if isinstance(value, dict):
         return {str(key): to_plain_data(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):

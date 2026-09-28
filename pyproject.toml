@@ -38,6 +38,7 @@ keras = [
 torch = [
   "torch>=2.2",
   "transformers>=4.30",
+  "einops>=0.6",
 ]
 gnn = [
   "torch>=2.2",
@@ -103,6 +104,9 @@ files = [
 ]
 exclude = '(^src/seqtrainer/_autordf2gml(-tb)?\.py$|^src/seqtrainer/config-helper\.py$|^src/seqtrainer/pwm\.py$|^src/seqtrainer/data/bacteria_titan/stage_c_(panels|streams)\.py$)'
 ignore_missing_imports = true
+# Check SeqTrainer against its minimum Python version without parsing
+# environment-specific third-party stubs (for example NumPy's 3.12-only stubs).
+no_site_packages = true
 warn_unused_ignores = true
 warn_redundant_casts = true
 disable_error_code = ["import-untyped"]

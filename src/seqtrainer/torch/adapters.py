@@ -74,4 +74,4 @@ def to_torch_dataloader(
         raise ImportError("Install seqtrainer[torch] to use torch adapters") from exc
 
     torch_dataset = to_torch_dataset(dataset, config=config)
-    return DataLoader(torch_dataset, batch_size=batch_size, shuffle=shuffle)  # type: ignore[arg-type]
+    return DataLoader(torch_dataset, batch_size=batch_size, shuffle=shuffle)

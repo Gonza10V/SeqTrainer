@@ -239,6 +239,8 @@ def test_artifact_save_flags_are_honored(tmp_path):
 
 
 def test_benchmark_run_cli_runs_cnn_and_writes_common_outputs(tmp_path, capsys):
+    pytest.importorskip("torch")
+
     split_dir = tmp_path / "data" / "promoter_classification"
     split_dir.mkdir(parents=True)
     sequences_by_split = {
@@ -340,6 +342,14 @@ output_dir = "outputs/ignored"
 
 def test_dnabert2_benchmark_gracefully_skips_without_local_model_files(tmp_path):
     config = load_benchmark_config(CONFIG_DIR / "dnabert2_frozen.toml")
+    config = replace(
+        config,
+        model=replace(
+            config.model,
+            name="seqtrainer-tests/definitely-missing-local-dnabert2",
+            params={**dict(config.model.params), "allow_download": False, "revision": None},
+        ),
+    )
     _write_configured_split_files(config, tmp_path)
 
     result = run_benchmark(config, base_dir=tmp_path, output_dir=tmp_path / "dnabert2")
@@ -1281,6 +1291,8 @@ def test_split_summary_supports_configured_string_labels(tmp_path):
 
 
 def test_cnn_runner_preserves_explicit_zero_training_values(tmp_path, monkeypatch):
+    pytest.importorskip("torch")
+
     import seqtrainer.benchmarks.runner as benchmark_runner
     import seqtrainer.torch.cnn_baseline as cnn_baseline
 

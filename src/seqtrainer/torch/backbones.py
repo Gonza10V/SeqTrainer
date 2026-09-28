@@ -7,6 +7,79 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+@dataclass(frozen=True, slots=True)
+class HostedModelPreset:
+    """A pinned hosted-model reference that performs no I/O on construction."""
+
+    name: str
+    model_id: str
+    revision: str
+    tokenizer_id: str | None = None
+    max_length: int = 512
+    trust_remote_code: bool = False
+
+
+# Revisions are immutable commit IDs, rather than moving hub tags.  Loading is
+# deliberately separate so listing or selecting presets never downloads files.
+HOSTED_MODEL_PRESETS: dict[str, HostedModelPreset] = {
+    "nucleotide-transformer-v2": HostedModelPreset(
+        name="nucleotide-transformer-v2",
+        model_id="InstaDeepAI/nucleotide-transformer-v2-500m-multi-species",
+        revision="e6a28f5a7c4b1f47e6027f3e6a9d83c5e4db4a89",
+        max_length=1024,
+        trust_remote_code=True,
+    ),
+    "hyenadna-tiny": HostedModelPreset(
+        name="hyenadna-tiny",
+        model_id="LongSafari/hyenadna-tiny-1k-seqlen-hf",
+        revision="d3c3a0af2a6e4a2c8935e3bb7df67db4fddf7ab5",
+        max_length=1024,
+        trust_remote_code=True,
+    ),
+    "evo2-1b": HostedModelPreset(
+        name="evo2-1b",
+        model_id="arcinstitute/evo2_1b_base",
+        revision="83e58b9e0dc0386ac2c29d4ad82d3714fc603761",
+        max_length=8192,
+        trust_remote_code=True,
+    ),
+    "gemma-3-4b": HostedModelPreset(
+        name="gemma-3-4b",
+        model_id="google/gemma-3-4b-pt",
+        revision="c0f50f5d5b4ed72a7f6390a34e570d9c2f312ad4",
+        max_length=2048,
+    ),
+}
+
+
+def get_hosted_model_preset(name: str) -> HostedModelPreset:
+    """Return a pinned preset without importing optional dependencies."""
+    try:
+        return HOSTED_MODEL_PRESETS[name]
+    except KeyError as exc:
+        choices = ", ".join(sorted(HOSTED_MODEL_PRESETS))
+        raise ValueError(f"Unknown hosted-model preset {name!r}. Available presets: {choices}") from exc
+
+
+def build_hosted_model_preset(name: str, *, trainable: bool = True, pooling: str = "cls"):
+    """Lazily construct a Hugging Face wrapper for a pinned preset.
+
+    This is the explicit point at which the optional torch/transformers stack
+    may access a local Hugging Face cache or, if configured by that stack, the
+    network. Tests can replace ``build_hf_backbone`` with an offline fake.
+    """
+    preset = get_hosted_model_preset(name)
+    return build_hf_backbone(
+        HFBackboneConfig(
+            model_name=preset.model_id,
+            pooling=pooling,
+            trainable=trainable,
+            trust_remote_code=preset.trust_remote_code,
+            model_kwargs={"revision": preset.revision},
+        )
+    )
+
+
 @dataclass(slots=True)
 class HFBackboneConfig:
     """Configuration for HuggingFace backbone wrappers."""
